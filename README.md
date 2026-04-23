@@ -2,7 +2,7 @@
 
 > Générateur de mots de passe sécurisé — application de bureau Python avec interface graphique.
 
-![Anchor Vault Screenshot](screenshot.png)
+![Anchor Vault Screenshot](screenshotanchor.png)
 
 ---
 
