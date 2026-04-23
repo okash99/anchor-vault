@@ -2,7 +2,7 @@
 
 > Générateur de mots de passe sécurisé — application de bureau Python avec interface graphique.
 
-![Anchor Vault Screenshot](screenshotanchor.png)
+![Anchor Vault Screenshot](screenshotanchor.jpg)
 
 ---
 
@@ -55,11 +55,11 @@ python MainAnchorVault.py
 
 ```
 anchor-vault/
-├── MainAnchorVault.py   # Code principal de l'application
-├── requirements.txt     # Dépendances Python
-├── RULES.md             # Spécifications & règles du projet
-├── screenshot.png       # Capture d'écran de l'app
-└── README.md            # Ce fichier
+├── MainAnchorVault.py      # Code principal de l'application
+├── requirements.txt        # Dépendances Python
+├── RULES.md                # Spécifications & règles du projet
+├── screenshotanchor.jpg    # Capture d'écran de l'app
+└── README.md               # Ce fichier
 ```
 
 ---
