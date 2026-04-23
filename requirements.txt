@@ -1,0 +1,4 @@
+# Anchor Vault — Dépendances Python
+# Installation : pip install -r requirements.txt
+
+pyperclip>=1.8.2   # Copie dans le presse-papier (optionnel, fallback natif Tkinter disponible)
