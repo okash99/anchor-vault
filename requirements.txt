@@ -2,3 +2,4 @@
 # Installation : pip install -r requirements.txt
 
 pyperclip>=1.8.2   # Copie dans le presse-papier (optionnel, fallback natif Tkinter disponible)
+requests>=2.28.0   # Vérification HaveIBeenPwned via k-anonymity (Feature 3)
