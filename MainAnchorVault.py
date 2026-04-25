@@ -1,13 +1,14 @@
 """
 🔐 Anchor Vault — Générateur de mots de passe sécurisé
-Stack : Python 3.10+ | Tkinter | secrets | math | hashlib
-Version : 4.0 — Feature 1 (entropie + crack time) + Feature 2 (identicon)
+Stack : Python 3.10+ | Tkinter | secrets | math | hashlib | threading | requests
+Version : 4.0 — Feature 1 (entropie + crack time) + Feature 2 (identicon) + Feature 3 (HIBP)
 """
 
 import hashlib
 import math
 import secrets
 import string
+import threading
 import tkinter as tk
 
 try:
@@ -15,6 +16,12 @@ try:
     CLIPBOARD_AVAILABLE = True
 except ImportError:
     CLIPBOARD_AVAILABLE = False
+
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -135,61 +142,31 @@ def formater_temps(secondes):
 # ══════════════════════════════════════════════════════════════════════════════
 #  FEATURE 2 — IDENTICON : ADN VISUEL DU MOT DE PASSE
 # ══════════════════════════════════════════════════════════════════════════════
-#
-#  Principe : SHA-256(mot_de_passe) → 32 octets
-#    • Octets 0-2   → couleur principale RGB
-#    • Octets 3-2   → couleur secondaire RGB (complémentaire décalée)
-#    • Octets 3+    → grille 5×5 avec symétrie gauche/droite (comme GitHub)
-#    • Résultat     → image pixel art 100×100px affichée dans un Canvas Tkinter
-#
-#  Deux mots de passe identiques = identicon IDENTIQUE → détection visuelle
-#  Deux mots de passe différents = identicons DIFFÉRENTS → fingerprint unique
-# ══════════════════════════════════════════════════════════════════════════════
 
-IDENTICON_GRID   = 5    # grille 5×5
-IDENTICON_CELL   = 18   # pixels par cellule
-IDENTICON_PAD    = 5    # marge extérieure
+IDENTICON_GRID   = 5
+IDENTICON_CELL   = 18
+IDENTICON_PAD    = 5
 IDENTICON_SIZE   = IDENTICON_GRID * IDENTICON_CELL + IDENTICON_PAD * 2  # 100px
 
 
 def _hex_couleur(r, g, b):
-    """Convertit 3 entiers 0-255 en couleur hexadécimale Tkinter."""
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def _couleur_complementaire(r, g, b):
-    """
-    Calcule une couleur complémentaire perceptuellement contrastée.
-    On décale la teinte de 128 dans l'espace RGB en inversant les canaux
-    dominants, puis on garantit une luminosité minimale.
-    """
     rc = (r + 128) % 256
     gc = (g + 128) % 256
     bc = (b + 128) % 256
-    # Garantir que le fond n'est pas trop sombre
     luminosite = 0.299 * rc + 0.587 * gc + 0.114 * bc
     if luminosite < 30:
-        rc, gc, bc = 28, 28, 45   # fond sombre par défaut de l'app
+        rc, gc, bc = 28, 28, 45
     return rc, gc, bc
 
 
 def generer_identicon(mdp, canvas):
-    """
-    Dessine l'identicon du mot de passe sur le Canvas fourni.
-
-    Algorithme :
-    1. SHA-256(mdp) → h (32 octets)
-    2. Couleur principale : h[0], h[1], h[2]
-    3. Grille 5×5 avec symétrie gauche/droite :
-       • Colonnes 0-2 déterminées par les bits de h[3..]
-       • Colonnes 3-4 = miroir des colonnes 1-0
-    4. Cellule activée = rectangle couleur principale
-       Cellule éteinte  = rectangle couleur de fond
-    """
     canvas.delete("all")
 
     if not mdp:
-        # État vide : grille grise uniforme avec message
         bg_vide = "#1e1e30"
         canvas.configure(bg=bg_vide)
         canvas.create_text(
@@ -199,15 +176,12 @@ def generer_identicon(mdp, canvas):
         )
         return
 
-    # 1. Hash SHA-256
-    h = hashlib.sha256(mdp.encode("utf-8")).digest()  # 32 octets
+    h = hashlib.sha256(mdp.encode("utf-8")).digest()
 
-    # 2. Couleur principale (vivifiante : saturation garantie)
     r, g, b = h[0], h[1], h[2]
-    # Saturation minimale : au moins un canal > 150, au moins un < 80
     max_c = max(r, g, b)
     min_c = min(r, g, b)
-    if max_c - min_c < 60:          # couleur trop terne → on force la dominante
+    if max_c - min_c < 60:
         dominant = [r, g, b].index(max_c)
         palette = [r, g, b]
         palette[dominant] = min(255, palette[dominant] + 80)
@@ -215,40 +189,87 @@ def generer_identicon(mdp, canvas):
         r, g, b = palette
 
     couleur_active = _hex_couleur(r, g, b)
-
-    # 3. Couleur de fond de l'identicon
     rc, gc, bc = _couleur_complementaire(r, g, b)
     couleur_fond = _hex_couleur(rc, gc, bc)
     canvas.configure(bg=couleur_fond)
 
-    # 4. Construction de la grille 5×5
-    #    On utilise les bits des octets h[3..17] pour les 5 colonnes × 5 lignes
-    #    soit 25 bits ; on n'utilise que les 3 colonnes gauche/centre (15 bits)
     grille = [[False] * IDENTICON_GRID for _ in range(IDENTICON_GRID)]
-
     bit_index = 0
     for ligne in range(IDENTICON_GRID):
-        for col in range(3):          # colonnes 0, 1, 2 seulement
+        for col in range(3):
             octet = h[3 + bit_index // 8]
             bit   = (octet >> (bit_index % 8)) & 1
             grille[ligne][col] = bool(bit)
             bit_index += 1
 
-    # Symétrie : colonne 3 = miroir col 1 ; colonne 4 = miroir col 0
     for ligne in range(IDENTICON_GRID):
         grille[ligne][3] = grille[ligne][1]
         grille[ligne][4] = grille[ligne][0]
 
-    # 5. Dessin des cellules
     for ligne in range(IDENTICON_GRID):
         for col in range(IDENTICON_GRID):
             x1 = IDENTICON_PAD + col  * IDENTICON_CELL
             y1 = IDENTICON_PAD + ligne * IDENTICON_CELL
-            x2 = x1 + IDENTICON_CELL - 1   # -1 = léger espace entre cellules
+            x2 = x1 + IDENTICON_CELL - 1
             y2 = y1 + IDENTICON_CELL - 1
-
             fill = couleur_active if grille[ligne][col] else couleur_fond
             canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline="")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FEATURE 3 — HAVEIBEENPWNED : VÉRIFICATION K-ANONYMITY
+# ══════════════════════════════════════════════════════════════════════════════
+#
+#  Principe k-anonymity (Troy Hunt / HIBP) :
+#  1. SHA-1(mdp) → ex: "A94F2B8C3D1E..."
+#  2. On envoie UNIQUEMENT les 5 premiers chars → "A94F2"
+#  3. L'API répond avec TOUS les suffixes dont le hash commence par "A94F2"
+#  4. On cherche LOCALEMENT si notre suffixe "B8C3D..." est dans la liste
+#  5. Résultat : 0% du vrai mot de passe ne quitte l'appareil ✅
+#
+#  Le check tourne dans un thread séparé pour ne pas bloquer l'UI Tkinter.
+# ══════════════════════════════════════════════════════════════════════════════
+
+HIBP_URL = "https://api.pwnedpasswords.com/range/{}"
+HIBP_TIMEOUT = 3  # secondes
+
+
+def verifier_hibp(mdp, callback):
+    """
+    Lance la vérification HIBP en arrière-plan.
+    callback(résultat) est appelé dans le thread principal via root.after().
+
+    Valeurs de résultat :
+      -2  → requests non installé
+      -1  → erreur réseau / timeout
+       0  → propre (non trouvé dans les leaks)
+      >0  → nombre de fois trouvé dans les leaks
+    """
+    if not REQUESTS_AVAILABLE:
+        callback(-2)
+        return
+
+    def _worker():
+        try:
+            sha1 = hashlib.sha1(mdp.encode("utf-8")).hexdigest().upper()
+            prefix, suffix = sha1[:5], sha1[5:]
+            r = requests.get(
+                HIBP_URL.format(prefix),
+                timeout=HIBP_TIMEOUT,
+                headers={"Add-Padding": "true"}   # meilleure confidentialité
+            )
+            r.raise_for_status()
+            for ligne in r.text.splitlines():
+                hash_partiel, count = ligne.split(":")
+                if hash_partiel.strip() == suffix:
+                    callback(int(count.strip()))
+                    return
+            callback(0)
+        except Exception:
+            callback(-1)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -265,6 +286,7 @@ class AnchorVaultApp:
         "primary":       "#7c6af7",
         "primary_hover": "#6a58e0",
         "success":       "#4ade80",
+        "warning":       "#facc15",
         "error":         "#f87171",
         "text":          "#e2e2f0",
         "text_muted":    "#9898b0",
@@ -273,10 +295,11 @@ class AnchorVaultApp:
     }
 
     LARGEUR_FENETRE = 480
-    HAUTEUR_FENETRE = 880   # +120px pour la carte identicon
+    HAUTEUR_FENETRE = 1020   # +140px pour la carte HIBP
 
     def __init__(self, root):
         self.root = root
+        self._dernier_mdp_hibp = ""   # pour éviter les vérifs en double
         self._configurer_fenetre()
         self._construire_ui()
         self._mettre_a_jour_force()
@@ -410,11 +433,9 @@ class AnchorVaultApp:
         inner2 = tk.Frame(carte2, bg=c["surface"])
         inner2.pack(fill="x", padx=18, pady=14)
 
-        # Layout horizontal : champ + bouton à gauche, identicon à droite
         row_resultat = tk.Frame(inner2, bg=c["surface"])
         row_resultat.pack(fill="x")
 
-        # Colonne gauche : label + champ + bouton
         col_gauche = tk.Frame(row_resultat, bg=c["surface"])
         col_gauche.pack(side="left", fill="both", expand=True, padx=(0, 12))
 
@@ -445,7 +466,6 @@ class AnchorVaultApp:
         )
         self.btn_copier.pack(fill="x", pady=(8, 0))
 
-        # Colonne droite : identicon canvas + label
         col_droite = tk.Frame(row_resultat, bg=c["surface"])
         col_droite.pack(side="right", anchor="n")
 
@@ -453,7 +473,6 @@ class AnchorVaultApp:
                  font=("Segoe UI", 7),
                  fg=c["text_muted"], bg=c["surface"]).pack(pady=(0, 4))
 
-        # Canvas identicon 100×100
         self.canvas_identicon = tk.Canvas(
             col_droite,
             width=IDENTICON_SIZE,
@@ -464,7 +483,6 @@ class AnchorVaultApp:
             bd=0
         )
         self.canvas_identicon.pack()
-        # Dessin initial (aucun mdp)
         generer_identicon("", self.canvas_identicon)
 
         tk.Label(col_droite, text="unique par mdp",
@@ -532,20 +550,66 @@ class AnchorVaultApp:
             fg=c["text_muted"], bg=c["surface2"]
         ).pack()
 
+        # ── Carte 4 : HaveIBeenPwned (Feature 3) ─────────────────────────
+        tk.Frame(self.root, bg=c["bg"], height=14).pack()
+
+        carte4 = tk.Frame(self.root, bg=c["surface2"],
+                          highlightbackground=c["border"], highlightthickness=1)
+        carte4.pack(fill="x", padx=PX)
+        inner4 = tk.Frame(carte4, bg=c["surface2"])
+        inner4.pack(fill="x", padx=18, pady=16)
+
+        # Titre de la carte
+        row_titre4 = tk.Frame(inner4, bg=c["surface2"])
+        row_titre4.pack(fill="x", pady=(0, 10))
+        tk.Label(row_titre4, text="🔍  Vérification des leaks",
+                 font=("Segoe UI", 10, "bold"),
+                 fg=c["text"], bg=c["surface2"]).pack(side="left")
+        tk.Label(row_titre4, text=" HIBP ",
+                 font=("Segoe UI", 7, "bold"),
+                 fg="#4ade80", bg="#1a2e1a",
+                 padx=5, pady=2).pack(side="right")
+
+        # Zone de statut (icône + message)
+        self.lbl_hibp_statut = tk.Label(
+            inner4, text="🔒  Génère un mot de passe pour vérifier",
+            font=("Segoe UI", 10),
+            fg=c["text_muted"], bg=c["surface2"],
+            wraplength=410, justify="center"
+        )
+        self.lbl_hibp_statut.pack(pady=(0, 6))
+
+        # Sous-texte pédagogique (explication k-anonymity)
+        self.lbl_hibp_detail = tk.Label(
+            inner4, text="",
+            font=("Segoe UI", 8, "italic"),
+            fg=c["text_muted"], bg=c["surface2"],
+            wraplength=410, justify="center"
+        )
+        self.lbl_hibp_detail.pack()
+
+        # Séparateur + explication permanente de la méthode
+        tk.Frame(inner4, bg=c["border"], height=1).pack(fill="x", pady=(10, 8))
+        tk.Label(
+            inner4,
+            text="🛡️ K-anonymity : seuls 5 chars du hash SHA-1 sont envoyés — le vrai mdp ne quitte jamais l'app",
+            font=("Segoe UI", 7),
+            fg=c["text_muted"], bg=c["surface2"],
+            wraplength=410, justify="center"
+        ).pack()
+
         # Espace bas
         tk.Frame(self.root, bg=c["bg"], height=18).pack()
 
     # ── Méthodes ────────────────────────────────────────────────────────────
 
     def _mettre_a_jour_force(self):
-        """Recalcule force + entropie + temps de crack en temps réel."""
         longueur   = self.var_longueur.get()
         maj = self.var_maj.get()
         min_ = self.var_min.get()
         chf = self.var_chf.get()
         sym = self.var_sym.get()
 
-        # Force v3
         label, couleur, ratio = evaluer_force(longueur, maj, min_, chf, sym)
         self.lbl_force.config(text=label, fg=couleur)
         self.canvas_barre.update_idletasks()
@@ -553,7 +617,6 @@ class AnchorVaultApp:
         self.canvas_barre.coords(self.rect_barre, 0, 0, int(lw * ratio), 8)
         self.canvas_barre.itemconfig(self.rect_barre, fill=couleur)
 
-        # Feature 1 : entropie + crack time
         entropie = calculer_entropie(longueur, maj, min_, chf, sym)
         secondes = calculer_temps_crack(entropie)
         duree, analogie, couleur_crack = formater_temps(secondes)
@@ -577,8 +640,8 @@ class AnchorVaultApp:
         if mdp is None:
             self.lbl_erreur.config(text="⚠️  Coche au moins un type de caractère !")
             self.var_resultat.set("")
-            # Identicon vide
             generer_identicon("", self.canvas_identicon)
+            self._reset_hibp()
             return
 
         self.lbl_erreur.config(text="")
@@ -586,8 +649,99 @@ class AnchorVaultApp:
         self.btn_copier.config(text="📋  Copier",
                                fg=self.C["text"], bg=self.C["border"])
 
-        # Feature 2 : mise à jour de l'identicon
+        # Feature 2 : identicon
         generer_identicon(mdp, self.canvas_identicon)
+
+        # Feature 3 : check HIBP en arrière-plan
+        self._lancer_hibp(mdp)
+
+    def _reset_hibp(self):
+        """Remet la carte HIBP à l'état initial."""
+        self.lbl_hibp_statut.config(
+            text="🔒  Génère un mot de passe pour vérifier",
+            fg=self.C["text_muted"]
+        )
+        self.lbl_hibp_detail.config(text="")
+        self._dernier_mdp_hibp = ""
+
+    def _lancer_hibp(self, mdp):
+        """Lance la vérification HIBP et affiche l'état 'vérification en cours'."""
+        if mdp == self._dernier_mdp_hibp:
+            return  # Pas de double vérification pour le même mdp
+        self._dernier_mdp_hibp = mdp
+
+        if not REQUESTS_AVAILABLE:
+            self.lbl_hibp_statut.config(
+                text="📦  Module 'requests' non installé",
+                fg=self.C["warning"]
+            )
+            self.lbl_hibp_detail.config(
+                text="Lance : pip install requests  puis relance l'app",
+                fg=self.C["text_muted"]
+            )
+            return
+
+        # Afficher l'état "en cours"
+        self.lbl_hibp_statut.config(
+            text="⏳  Vérification en cours…",
+            fg=self.C["text_muted"]
+        )
+        self.lbl_hibp_detail.config(text="")
+
+        # Callback appelé depuis le thread worker → on repasse dans le thread Tkinter
+        def _callback(resultat):
+            self.root.after(0, lambda: self._afficher_resultat_hibp(resultat, mdp))
+
+        verifier_hibp(mdp, _callback)
+
+    def _afficher_resultat_hibp(self, resultat, mdp_verifie):
+        """
+        Met à jour la carte HIBP avec le résultat.
+        On vérifie que le mdp n'a pas changé entre temps.
+        """
+        # Si l'utilisateur a déjà généré un nouveau mdp, on ignore ce résultat
+        if mdp_verifie != self._dernier_mdp_hibp:
+            return
+
+        if resultat == -2:
+            # requests non installé (ne devrait pas arriver ici, mais par sécurité)
+            self.lbl_hibp_statut.config(
+                text="📦  Module 'requests' requis",
+                fg=self.C["warning"]
+            )
+            self.lbl_hibp_detail.config(
+                text="pip install requests",
+                fg=self.C["text_muted"]
+            )
+        elif resultat == -1:
+            self.lbl_hibp_statut.config(
+                text="🔌  Vérification impossible (pas de connexion)",
+                fg=self.C["warning"]
+            )
+            self.lbl_hibp_detail.config(
+                text="Le mot de passe n'a pas été envoyé sur le réseau.",
+                fg=self.C["text_muted"]
+            )
+        elif resultat == 0:
+            self.lbl_hibp_statut.config(
+                text="✅  Propre — non trouvé dans les bases de leaks",
+                fg=self.C["success"]
+            )
+            self.lbl_hibp_detail.config(
+                text="Ce mot de passe n'apparaît dans aucune fuite de données connue.",
+                fg=self.C["text_muted"]
+            )
+        else:
+            # Trouvé dans des leaks
+            count_str = f"{resultat:,}".replace(",", " ")
+            self.lbl_hibp_statut.config(
+                text=f"⚠️  Trouvé {count_str} fois dans des leaks !",
+                fg=self.C["error"]
+            )
+            self.lbl_hibp_detail.config(
+                text="Ce mot de passe est compromis. Génères-en un nouveau.",
+                fg=self.C["error"]
+            )
 
     def _on_copier(self):
         mdp = self.var_resultat.get()
