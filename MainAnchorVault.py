@@ -1,7 +1,7 @@
 """
 🔐 Anchor Vault — Générateur de mots de passe sécurisé
-Stack : Python 3.10+ | Tkinter | secrets | math | hashlib | threading | requests
-Version : 4.2 — Champ éditable : identicon + HIBP sur saisie manuelle
+Stack  : Python 3.10+ | Tkinter | secrets | math | hashlib | threading | requests
+Version: 4.3 — Redesign UI Anchor Protocol (black / white / green)
 """
 
 import hashlib
@@ -25,802 +25,800 @@ except ImportError:
     REQUESTS_AVAILABLE = False
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  LOGIQUE DE GÉNÉRATION
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════
+#  PALETTE — Anchor Protocol
+# ════════════════════════════════════════════════════════════════════════
+
+C = {
+    # Fonds
+    "bg":            "#0f0f0f",   # fond global noir
+    "header_bg":     "#111111",   # header bande noire
+    "card":          "#f5f5f5",   # surface card blanche
+    "card2":         "#ececec",   # surface card légèrement plus sombre
+    "input_bg":      "#e8e8e8",   # fond champ de saisie
+    "border_card":   "#dedede",   # bordure subtile sur card
+    "border_dark":   "#2a2a2a",   # bordure sur fond noir
+
+    # Textes
+    "text_dark":     "#1a1a1a",   # texte principal sur card
+    "text_muted":    "#777777",   # texte secondaire
+    "text_faint":    "#aaaaaa",   # labels très discrets
+    "text_light":    "#e8e8e8",   # texte sur fond noir
+    "text_muted_dk": "#666666",   # muted sur fond noir
+
+    # Accent vert Anchor
+    "green":         "#4bdc6f",   # vert vif principal
+    "green_dark":    "#2d9a4e",   # vert sombre (logo, hover)
+    "green_bg":      "#0f2a18",   # fond très sombre teinté vert
+    "green_text":    "#1a1a1a",   # texte sur bouton vert
+
+    # États
+    "success":       "#4bdc6f",
+    "warning":       "#f5a623",
+    "error":         "#e84040",
+    "error_weak":    "#ff6b6b",
+
+    # Boutons sombres (style Deposit/Withdraw)
+    "btn_dark":      "#2a2a2a",
+    "btn_dark_hov":  "#3a3a3a",
+}
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  LOGIQUE — Génération
+# ════════════════════════════════════════════════════════════════════════
 
 def generer_mot_de_passe(longueur, majuscules, minuscules, chiffres, symboles):
-    pool = ""
-    garantis = []
-    if majuscules:
-        pool += string.ascii_uppercase
-        garantis.append(secrets.choice(string.ascii_uppercase))
-    if minuscules:
-        pool += string.ascii_lowercase
-        garantis.append(secrets.choice(string.ascii_lowercase))
-    if chiffres:
-        pool += string.digits
-        garantis.append(secrets.choice(string.digits))
-    if symboles:
-        pool += string.punctuation
-        garantis.append(secrets.choice(string.punctuation))
-    if not pool:
-        return None
+    pool, garantis = "", []
+    if majuscules: pool += string.ascii_uppercase; garantis.append(secrets.choice(string.ascii_uppercase))
+    if minuscules: pool += string.ascii_lowercase; garantis.append(secrets.choice(string.ascii_lowercase))
+    if chiffres:   pool += string.digits;          garantis.append(secrets.choice(string.digits))
+    if symboles:   pool += string.punctuation;     garantis.append(secrets.choice(string.punctuation))
+    if not pool:   return None
     reste = longueur - len(garantis)
-    mdp = garantis + [secrets.choice(pool) for _ in range(reste)]
+    mdp   = garantis + [secrets.choice(pool) for _ in range(reste)]
     secrets.SystemRandom().shuffle(mdp)
     return "".join(mdp)
 
 
 def evaluer_force_mdp(mdp):
-    """
-    Évalue la force d'un mot de passe arbitraire (saisie manuelle).
-    Retourne (label, couleur, ratio).
-    """
-    if not mdp:
-        return "—", "#9898b0", 0.0
-    lon = len(mdp)
-    has_maj = any(c.isupper() for c in mdp)
-    has_min = any(c.islower() for c in mdp)
-    has_chf = any(c.isdigit() for c in mdp)
-    has_sym = any(not c.isalnum() for c in mdp)
-    types = sum([has_maj, has_min, has_chf, has_sym])
-    if lon < 8 or types == 1:
-        return "😟  Très faible", "#f87171", 0.15
-    elif lon < 12 or types == 2:
-        return "😐  Faible",      "#fb923c", 0.40
-    elif lon < 16 or types == 3:
-        return "🙂  Fort",        "#facc15", 0.70
-    else:
-        return "😎  Très fort",   "#4ade80", 1.00
+    if not mdp: return "", C["text_muted"], 0.0
+    lon  = len(mdp)
+    types = sum([
+        any(c.isupper()  for c in mdp),
+        any(c.islower()  for c in mdp),
+        any(c.isdigit()  for c in mdp),
+        any(not c.isalnum() for c in mdp),
+    ])
+    if lon < 8  or types == 1: return "TRÈS FAIBLE", C["error"],   0.15
+    if lon < 12 or types == 2: return "FAIBLE",      C["warning"],  0.40
+    if lon < 16 or types == 3: return "FORT",        C["green"],    0.70
+    return                            "TRÈS FORT",   C["green"],    1.00
 
 
-def evaluer_force(longueur, majuscules, minuscules, chiffres, symboles):
-    types_actifs = sum([majuscules, minuscules, chiffres, symboles])
-    if longueur < 8 or types_actifs == 1:
-        return "😟  Très faible", "#f87171", 0.15
-    elif longueur < 12 or types_actifs == 2:
-        return "😐  Faible",      "#fb923c", 0.40
-    elif longueur < 16 or types_actifs == 3:
-        return "🙂  Fort",        "#facc15", 0.70
-    else:
-        return "😎  Très fort",   "#4ade80", 1.00
+def evaluer_force(lon, maj, min_, chf, sym):
+    t = sum([maj, min_, chf, sym])
+    if lon < 8  or t == 1: return "TRÈS FAIBLE", C["error"],   0.15
+    if lon < 12 or t == 2: return "FAIBLE",      C["warning"],  0.40
+    if lon < 16 or t == 3: return "FORT",        C["green"],    0.70
+    return                        "TRÈS FORT",   C["green"],    1.00
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  FEATURE 1 — ENTROPIE + TEMPS DE CRACKAGE
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════
+#  LOGIQUE — Entropie + crack time
+# ════════════════════════════════════════════════════════════════════════
 
-VITESSE_GPU = 10_000_000_000
+GPU = 10_000_000_000
 
+def _entropie(lon, maj, min_, chf, sym):
+    a = sum([26*maj, 26*min_, 10*chf, 32*sym])
+    return lon * math.log2(a) if a else 0.0
 
-def calculer_entropie(longueur, majuscules, minuscules, chiffres, symboles):
-    alphabet = 0
-    if majuscules: alphabet += 26
-    if minuscules: alphabet += 26
-    if chiffres:   alphabet += 10
-    if symboles:   alphabet += 32
-    return longueur * math.log2(alphabet) if alphabet > 0 else 0.0
+def _entropie_mdp(mdp):
+    if not mdp: return 0.0
+    a = sum([26*any(c.isupper() for c in mdp), 26*any(c.islower() for c in mdp),
+             10*any(c.isdigit() for c in mdp), 32*any(not c.isalnum() for c in mdp)])
+    return len(mdp) * math.log2(a) if a else 0.0
 
+def _crack(e):
+    if e <= 0:   return 0
+    if e > 300:  return float("inf")
+    return (2**e / 2) / GPU
 
-def calculer_entropie_mdp(mdp):
-    """Entropie basée sur l'alphabet réellement utilisé dans le mot de passe."""
-    if not mdp:
-        return 0.0
-    alphabet = 0
-    if any(c.isupper() for c in mdp): alphabet += 26
-    if any(c.islower() for c in mdp): alphabet += 26
-    if any(c.isdigit() for c in mdp): alphabet += 10
-    if any(not c.isalnum() for c in mdp): alphabet += 32
-    return len(mdp) * math.log2(alphabet) if alphabet > 0 else 0.0
-
-
-def calculer_temps_crack(entropie_bits):
-    if entropie_bits <= 0: return 0
-    if entropie_bits > 300: return float("inf")
-    return (2 ** entropie_bits / 2) / VITESSE_GPU
-
-
-def formater_temps(secondes):
-    if secondes == float("inf"):
-        return "∞ infini", "🌌  Plus long que l'âge de l'Univers × 1 000", "#4ade80"
-    M=60; H=3600; J=86400; MO=2592000; AN=31536000
-    SC=AN*100; ML=AN*1000; MIL=AN*1000000; MLD=AN*1000000000
-    if secondes < 1:    return "< 1 seconde",  "💀  Craqué instantanément", "#f87171"
-    elif secondes < M:  s=int(secondes); return f"{s}s", "😱  Craqué avant ta prochaine inspiration", "#f87171"
-    elif secondes < H:  m=int(secondes//M); return f"{m} min", "☕  Craqué avant que ton café refroidisse", "#fb923c"
-    elif secondes < J:  h=int(secondes//H); return f"{h}h", "📺  Moins d'une journée de binge-watching", "#fb923c"
-    elif secondes < MO: j=int(secondes//J); return f"{j}j", "📅  Craqué dans le mois", "#fb923c"
-    elif secondes < AN: mo=int(secondes//MO); return f"{mo} mois", "🗓️  Craqué dans l'année", "#facc15"
-    elif secondes < SC: a=int(secondes//AN); return f"{a} ans", "🧓  Craqué de ton vivant", "#facc15"
-    elif secondes < ML: s=int(secondes//SC); return f"{s} siècles", "🏛️  Plus long que l'Empire Romain", "#4ade80"
-    elif secondes < MIL: m=int(secondes//ML); return f"{m} millénaires", "🦕  L'humanité n'existait pas", "#4ade80"
-    elif secondes < MLD: m=int(secondes//MIL); return f"{m}M d'années", "🌍  Plus vieux que les dinos", "#4ade80"
-    else:
-        m=int(secondes//MLD)
-        return f"{m}Mrd d'années", "🌌  Plus vieux que l'Univers", "#4ade80"
+def _formater(s):
+    if s == float("inf"): return "∞", "Plus vieux que l'Univers × 1000", C["green"]
+    M,H,J,MO,AN = 60,3600,86400,2592000,31536000
+    if s < 1:    return "< 1s",          "Craqué instantanément",                   C["error"]
+    if s < M:    return f"{int(s)}s",    "Craqué avant ta prochaine inspiration",   C["error"]
+    if s < H:    return f"{int(s//M)}m", "Craqué avant que ton café refroidisse",  C["warning"]
+    if s < J:    return f"{int(s//H)}h", "Moins d'une journée de binge-watching",  C["warning"]
+    if s < MO:   return f"{int(s//J)}j", "Craqué dans le mois",                    C["warning"]
+    if s < AN:   m=int(s//MO); return f"{m} mois",    "Craqué dans l'année",       C["green"]
+    if s < AN*100: a=int(s//AN); return f"{a} ans",   "Craqué de ton vivant",      C["green"]
+    sc=int(s//(AN*100)); return f"{sc} siècles", "Plus long que l'Empire Romain", C["green"]
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  FEATURE 2 — IDENTICON
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════
+#  LOGIQUE — Identicon
+# ════════════════════════════════════════════════════════════════════════
 
-IDENTICON_GRID = 5
-IDENTICON_CELL = 18
-IDENTICON_PAD  = 5
-IDENTICON_SIZE = IDENTICON_GRID * IDENTICON_CELL + IDENTICON_PAD * 2
+IG, IC, IP = 5, 18, 5
+IS = IG * IC + IP * 2
 
-
-def _hex_couleur(r, g, b):
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-def _couleur_complementaire(r, g, b):
-    rc, gc, bc = (r+128)%256, (g+128)%256, (b+128)%256
-    if 0.299*rc + 0.587*gc + 0.114*bc < 30:
-        rc, gc, bc = 28, 28, 45
-    return rc, gc, bc
-
-def generer_identicon(mdp, canvas):
+def generer_identicon(mdp, canvas, bg_card="#f5f5f5"):
     canvas.delete("all")
     if not mdp:
-        canvas.configure(bg="#1e1e30")
-        canvas.create_text(IDENTICON_SIZE//2, IDENTICON_SIZE//2,
-                           text="?", fill="#3d3d5c", font=("Consolas", 28, "bold"))
+        canvas.configure(bg=bg_card)
+        canvas.create_text(IS//2, IS//2, text="A",
+                           fill="#cccccc", font=("Arial", 22, "bold"))
         return
-    h = hashlib.sha256(mdp.encode("utf-8")).digest()
+    h = hashlib.sha256(mdp.encode()).digest()
     r, g, b = h[0], h[1], h[2]
-    if max(r,g,b) - min(r,g,b) < 60:
-        d = [r,g,b].index(max(r,g,b))
-        p = [r,g,b]; p[d]=min(255,p[d]+80); p[(d+1)%3]=max(0,p[(d+1)%3]-40)
+    if max(r,g,b)-min(r,g,b) < 50:
+        d = [r,g,b].index(max(r,g,b)); p=[r,g,b]
+        p[d]=min(255,p[d]+90); p[(d+1)%3]=max(0,p[(d+1)%3]-40)
         r,g,b = p
-    couleur_active = _hex_couleur(r,g,b)
-    rc,gc,bc = _couleur_complementaire(r,g,b)
-    canvas.configure(bg=_hex_couleur(rc,gc,bc))
-    grille = [[False]*IDENTICON_GRID for _ in range(IDENTICON_GRID)]
+    col  = f"#{r:02x}{g:02x}{b:02x}"
+    rc,gc,bc = (r+128)%256,(g+128)%256,(b+128)%256
+    bg_hex = f"#{rc:02x}{gc:02x}{bc:02x}"
+    # On garde le fond de la card pour la bordure
+    canvas.configure(bg=bg_card)
+    # Dessiner fond coloré légèrement transparent via rectangle
+    canvas.create_rectangle(0, 0, IS, IS, fill=bg_hex, outline="")
+    grille = [[False]*IG for _ in range(IG)]
     bi = 0
-    for row in range(IDENTICON_GRID):
-        for col in range(3):
-            octet = h[3 + bi//8]
-            grille[row][col] = bool((octet >> (bi%8)) & 1)
-            bi += 1
-    for row in range(IDENTICON_GRID):
+    for row in range(IG):
+        for col2 in range(3):
+            grille[row][col2] = bool((h[3+bi//8] >> (bi%8)) & 1); bi += 1
+    for row in range(IG):
         grille[row][3] = grille[row][1]
         grille[row][4] = grille[row][0]
-    for row in range(IDENTICON_GRID):
-        for col in range(IDENTICON_GRID):
-            x1 = IDENTICON_PAD + col*IDENTICON_CELL
-            y1 = IDENTICON_PAD + row*IDENTICON_CELL
-            fill = couleur_active if grille[row][col] else _hex_couleur(rc,gc,bc)
-            canvas.create_rectangle(x1, y1, x1+IDENTICON_CELL-1, y1+IDENTICON_CELL-1,
-                                    fill=fill, outline="")
+    for row in range(IG):
+        for col2 in range(IG):
+            x1 = IP + col2*IC; y1 = IP + row*IC
+            fill = col if grille[row][col2] else bg_hex
+            canvas.create_rectangle(x1, y1, x1+IC-1, y1+IC-1, fill=fill, outline="")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  FEATURE 3 — HAVEIBEENPWNED K-ANONYMITY
-# ══════════════════════════════════════════════════════════════════════════════
-
-HIBP_URL     = "https://api.pwnedpasswords.com/range/{}"
-HIBP_TIMEOUT = 3
-
+# ════════════════════════════════════════════════════════════════════════
+#  LOGIQUE — HIBP
+# ════════════════════════════════════════════════════════════════════════
 
 def verifier_hibp(mdp, callback):
-    if not REQUESTS_AVAILABLE:
-        callback(-2); return
-    def _worker():
+    if not REQUESTS_AVAILABLE: callback(-2); return
+    def _w():
         try:
-            sha1 = hashlib.sha1(mdp.encode("utf-8")).hexdigest().upper()
-            prefix, suffix = sha1[:5], sha1[5:]
-            r = requests.get(HIBP_URL.format(prefix), timeout=HIBP_TIMEOUT,
-                             headers={"Add-Padding": "true"})
+            sha1 = hashlib.sha1(mdp.encode()).hexdigest().upper()
+            pre, suf = sha1[:5], sha1[5:]
+            r = requests.get(f"https://api.pwnedpasswords.com/range/{pre}",
+                             timeout=3, headers={"Add-Padding": "true"})
             r.raise_for_status()
-            for ligne in r.text.splitlines():
-                hp, count = ligne.split(":")
-                if hp.strip() == suffix:
-                    callback(int(count.strip())); return
+            for l in r.text.splitlines():
+                hp, cnt = l.split(":")
+                if hp.strip() == suf: callback(int(cnt.strip())); return
             callback(0)
-        except Exception:
-            callback(-1)
-    threading.Thread(target=_worker, daemon=True).start()
+        except Exception: callback(-1)
+    threading.Thread(target=_w, daemon=True).start()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  COMPOSANT : SECTION EXPANDABLE (ACCORDION)
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════
+#  WIDGETS CUSTOM — Logo A + Bouton Pill
+# ════════════════════════════════════════════════════════════════════════
 
-class SectionExpandable(tk.Frame):
-    C = {
-        "bg":           "#1e1e2e",
-        "surface":      "#2a2a3e",
-        "surface2":     "#23233a",
-        "border":       "#3d3d5c",
-        "primary":      "#7c6af7",
-        "text":         "#e2e2f0",
-        "text_muted":   "#9898b0",
-        "header_hover": "#32324a",
-    }
+def dessiner_logo_a(canvas, cx, cy, taille=32):
+    """Logo 'A' Anchor Protocol : 2 capsules vertes croisées."""
+    canvas.delete("all")
+    t = taille
+    ep  = int(t * 0.28)   # épaisseur capsule
+    r   = ep // 2         # rayon arrondi
+    # Capsule gauche (vert vif)
+    pts_g = [
+        (cx - int(t*0.38), cy + int(t*0.42)),
+        (cx + int(t*0.02), cy - int(t*0.42)),
+    ]
+    _capsule(canvas, pts_g[0], pts_g[1], ep, C["green"])
+    # Capsule droite (vert sombre, léger overlay)
+    pts_d = [
+        (cx - int(t*0.02), cy - int(t*0.42)),
+        (cx + int(t*0.38), cy + int(t*0.42)),
+    ]
+    _capsule(canvas, pts_d[0], pts_d[1], ep, C["green_dark"])
 
-    def __init__(self, parent, titre, badge_texte=None, badge_couleur=None,
-                 badge_bg=None, ouvert=True, couleur_surface="surface",
-                 on_toggle=None, **kwargs):
-        c  = self.C
-        bg = c[couleur_surface]
-        super().__init__(parent, bg=bg,
-                         highlightbackground=c["border"], highlightthickness=1,
-                         **kwargs)
+def _capsule(canvas, p1, p2, ep, couleur):
+    """Trace une capsule (rectangle + demi-cercles aux extrémités) entre p1 et p2."""
+    import math as _m
+    dx, dy = p2[0]-p1[0], p2[1]-p1[1]
+    lng = _m.hypot(dx, dy)
+    if lng == 0: return
+    nx, ny = -dy/lng, dx/lng  # normale
+    r = ep // 2
+    # 4 coins du rectangle
+    corners = [
+        (p1[0]+nx*r, p1[1]+ny*r),
+        (p2[0]+nx*r, p2[1]+ny*r),
+        (p2[0]-nx*r, p2[1]-ny*r),
+        (p1[0]-nx*r, p1[1]-ny*r),
+    ]
+    flat = [v for pt in corners for v in pt]
+    canvas.create_polygon(flat, fill=couleur, outline="")
+    canvas.create_oval(p1[0]-r, p1[1]-r, p1[0]+r, p1[1]+r, fill=couleur, outline="")
+    canvas.create_oval(p2[0]-r, p2[1]-r, p2[0]+r, p2[1]+r, fill=couleur, outline="")
+
+
+class BoutonPill(tk.Canvas):
+    """Bouton arrondi style Anchor Protocol."""
+    def __init__(self, parent, texte, commande=None,
+                 bg_btn=None, fg_btn=None,
+                 bg_parent=None,
+                 largeur=200, hauteur=40, **kwargs):
+        self._bg_btn  = bg_btn  or C["green"]
+        self._fg_btn  = fg_btn  or C["green_text"]
+        self._bg_par  = bg_parent or C["card"]
+        self._texte   = texte
+        self._cmd     = commande
+        self._w       = largeur
+        self._h       = hauteur
+        super().__init__(parent, width=largeur, height=hauteur,
+                         bg=self._bg_par, highlightthickness=0, bd=0, **kwargs)
+        self._dessiner(self._bg_btn)
+        self.bind("<Button-1>",  self._click)
+        self.bind("<Enter>",     lambda _: self._dessiner(self._hover()))
+        self.bind("<Leave>",     lambda _: self._dessiner(self._bg_btn))
+        self.config(cursor="hand2")
+
+    def _hover(self):
+        # Assombrit légèrement la couleur
+        col = self._bg_btn.lstrip("#")
+        r,g,b = int(col[0:2],16),int(col[2:4],16),int(col[4:6],16)
+        r,g,b = max(0,r-20),max(0,g-20),max(0,b-20)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _dessiner(self, couleur):
+        self.delete("all")
+        r = self._h // 2
+        self.create_arc(0, 0, 2*r, self._h,
+                        start=90, extent=180, fill=couleur, outline="")
+        self.create_arc(self._w-2*r, 0, self._w, self._h,
+                        start=270, extent=180, fill=couleur, outline="")
+        self.create_rectangle(r, 0, self._w-r, self._h,
+                              fill=couleur, outline="")
+        self.create_text(self._w//2, self._h//2, text=self._texte,
+                         fill=self._fg_btn,
+                         font=("Segoe UI", 10, "bold"))
+
+    def _click(self, _=None):
+        if self._cmd: self._cmd()
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  COMPOSANT — Section Accordion
+# ════════════════════════════════════════════════════════════════════════
+
+class SectionCard(tk.Frame):
+    """Card blanche avec header cliquable (accordion)."""
+
+    def __init__(self, parent, titre, badge=None,
+                 ouvert=True, on_toggle=None, **kwargs):
+        super().__init__(parent, bg=C["card"],
+                         highlightbackground=C["border_card"],
+                         highlightthickness=1, **kwargs)
         self._ouvert    = ouvert
         self._on_toggle = on_toggle
-        self._bg        = bg
 
-        self._header = tk.Frame(self, bg=bg, cursor="hand2")
-        self._header.pack(fill="x", padx=14, pady=(10, 10))
+        # Header
+        hdr = tk.Frame(self, bg=C["card"], cursor="hand2")
+        hdr.pack(fill="x", padx=16, pady=(12, 12))
 
-        self._lbl_chevron = tk.Label(
-            self._header, text="▼" if ouvert else "▶",
-            font=("Segoe UI", 8), fg=c["text_muted"], bg=bg)
-        self._lbl_chevron.pack(side="left", padx=(0, 6))
+        self._chevron = tk.Label(hdr,
+            text="▾" if ouvert else "▸",
+            font=("Segoe UI", 9), fg=C["text_muted"], bg=C["card"])
+        self._chevron.pack(side="left", padx=(0, 8))
 
-        tk.Label(self._header, text=titre,
-                 font=("Segoe UI", 10, "bold"),
-                 fg=c["text"], bg=bg).pack(side="left")
+        tk.Label(hdr, text=titre,
+                 font=("Segoe UI", 9, "bold"),
+                 fg=C["text_dark"], bg=C["card"]
+                 ).pack(side="left")
 
-        if badge_texte:
-            tk.Label(self._header, text=f" {badge_texte} ",
+        if badge:
+            btxt, bcol = badge
+            tk.Label(hdr, text=f" {btxt} ",
                      font=("Segoe UI", 7, "bold"),
-                     fg=badge_couleur or c["primary"],
-                     bg=badge_bg or "#2e2a52",
-                     padx=4, pady=2).pack(side="right")
+                     fg="white", bg=bcol,
+                     padx=5, pady=2
+                     ).pack(side="right")
 
-        self._separateur = tk.Frame(self, bg=c["border"], height=1)
-        self._corps = tk.Frame(self, bg=bg)
-        self._corps.pack(fill="x", padx=18, pady=(0, 16))
-        if not ouvert:
-            self._corps.pack_forget()
-        else:
-            self._separateur.pack(fill="x")
+        # Séparateur
+        self._sep = tk.Frame(self, bg=C["border_card"], height=1)
 
-        for w in (self._header, self._lbl_chevron):
-            w.bind("<Button-1>", self._basculer)
-            w.bind("<Enter>",    lambda e: self._header.config(bg=c["header_hover"]))
-            w.bind("<Leave>",    lambda e: self._header.config(bg=bg))
+        # Corps
+        self.corps = tk.Frame(self, bg=C["card"])
+        if ouvert:
+            self._sep.pack(fill="x")
+            self.corps.pack(fill="x", padx=18, pady=(12, 16))
 
-    @property
-    def corps(self):
-        return self._corps
+        for w in (hdr, self._chevron):
+            w.bind("<Button-1>", self._toggle)
+            w.bind("<Enter>",    lambda e: hdr.config(bg="#ebebeb"))
+            w.bind("<Leave>",    lambda e: hdr.config(bg=C["card"]))
 
-    def _basculer(self, _=None):
+    def _toggle(self, _=None):
         self._ouvert = not self._ouvert
         if self._ouvert:
-            self._separateur.pack(fill="x")
-            self._corps.pack(fill="x", padx=18, pady=(0, 16))
-            self._lbl_chevron.config(text="▼")
+            self._sep.pack(fill="x")
+            self.corps.pack(fill="x", padx=18, pady=(12, 16))
+            self._chevron.config(text="▾")
         else:
-            self._separateur.pack_forget()
-            self._corps.pack_forget()
-            self._lbl_chevron.config(text="▶")
-        if self._on_toggle:
-            self._on_toggle()
+            self._sep.pack_forget()
+            self.corps.pack_forget()
+            self._chevron.config(text="▸")
+        if self._on_toggle: self._on_toggle()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  INTERFACE GRAPHIQUE PRINCIPALE
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════
+#  APPLICATION PRINCIPALE
+# ════════════════════════════════════════════════════════════════════════
 
 class AnchorVaultApp:
 
-    C = {
-        "bg":            "#1e1e2e",
-        "surface":       "#2a2a3e",
-        "surface2":      "#23233a",
-        "border":        "#3d3d5c",
-        "primary":       "#7c6af7",
-        "primary_hover": "#6a58e0",
-        "success":       "#4ade80",
-        "warning":       "#facc15",
-        "error":         "#f87171",
-        "text":          "#e2e2f0",
-        "text_muted":    "#9898b0",
-        "input_bg":      "#12121f",
-        "bar_bg":        "#12121f",
-    }
-
-    LARGEUR = 480
-    HAUTEUR = 620
-    DEBOUNCE_MS = 600   # délai avant déclenchement identicon + HIBP
+    LARGEUR      = 480
+    HAUTEUR      = 640
+    DEBOUNCE_MS  = 600
 
     def __init__(self, root):
-        self.root = root
-        self._dernier_mdp_hibp = ""
-        self._debounce_id      = None   # ID du after() en cours
+        self.root              = root
+        self._dernier_hibp     = ""
+        self._debounce_id      = None
+        self._placeholder_actif = True
         self._configurer_fenetre()
-        self._construire_ui()
+        self._build_ui()
         self._mettre_a_jour_force()
 
     def _configurer_fenetre(self):
-        self.root.title("Anchor Vault v4")
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        x  = (sw - self.LARGEUR) // 2
-        y  = (sh - self.HAUTEUR) // 2
-        self.root.geometry(f"{self.LARGEUR}x{self.HAUTEUR}+{x}+{y}")
+        self.root.title("Anchor Vault")
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        self.root.geometry(f"{self.LARGEUR}x{self.HAUTEUR}+{(sw-self.LARGEUR)//2}+{(sh-self.HAUTEUR)//2}")
         self.root.resizable(False, False)
-        self.root.configure(bg=self.C["bg"])
+        self.root.configure(bg=C["bg"])
 
-    # ── Zone scrollable ────────────────────────────────────────────────
+    # ── Build UI ──────────────────────────────────────────────────────
 
-    def _construire_ui(self):
-        c = self.C
-        outer = tk.Frame(self.root, bg=c["bg"])
+    def _build_ui(self):
+        # ── HEADER noir ──
+        header = tk.Frame(self.root, bg=C["header_bg"], height=60)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
+        logo_canvas = tk.Canvas(header, width=36, height=36,
+                                bg=C["header_bg"], highlightthickness=0)
+        logo_canvas.pack(side="left", padx=(18, 8), pady=12)
+        dessiner_logo_a(logo_canvas, 18, 18, taille=30)
+
+        tk.Label(header, text="ANCHOR VAULT",
+                 font=("Segoe UI", 13, "bold"),
+                 fg=C["text_light"], bg=C["header_bg"]
+                 ).pack(side="left", pady=12)
+
+        tk.Label(header, text="v4",
+                 font=("Segoe UI", 8),
+                 fg=C["green"], bg=C["header_bg"]
+                 ).pack(side="left", padx=(6, 0), pady=16)
+
+        # ── Zone scrollable ──
+        outer = tk.Frame(self.root, bg=C["bg"])
         outer.pack(fill="both", expand=True)
 
-        self._canvas_scroll = tk.Canvas(outer, bg=c["bg"],
-                                         highlightthickness=0, bd=0)
-        scrollbar = ttk.Scrollbar(outer, orient="vertical",
-                                   command=self._canvas_scroll.yview)
-        self._canvas_scroll.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        self._canvas_scroll.pack(side="left", fill="both", expand=True)
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Vault.Vertical.TScrollbar",
+                        background=C["border_dark"],
+                        troughcolor=C["bg"],
+                        arrowcolor=C["text_muted_dk"],
+                        borderwidth=0, relief="flat")
 
-        self._frame_interieur = tk.Frame(self._canvas_scroll, bg=c["bg"])
-        self._window_id = self._canvas_scroll.create_window(
-            (0, 0), window=self._frame_interieur, anchor="nw")
+        self._cvs = tk.Canvas(outer, bg=C["bg"], highlightthickness=0, bd=0)
+        sb  = ttk.Scrollbar(outer, orient="vertical",
+                            command=self._cvs.yview,
+                            style="Vault.Vertical.TScrollbar")
+        self._cvs.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self._cvs.pack(side="left", fill="both", expand=True)
 
-        self._frame_interieur.bind("<Configure>", self._on_frame_configure)
-        self._canvas_scroll.bind("<Configure>",   self._on_canvas_configure)
+        self._inner = tk.Frame(self._cvs, bg=C["bg"])
+        self._win   = self._cvs.create_window((0,0), window=self._inner, anchor="nw")
+        self._inner.bind("<Configure>", lambda _: self._cvs.configure(
+            scrollregion=self._cvs.bbox("all")))
+        self._cvs.bind("<Configure>",
+            lambda e: self._cvs.itemconfig(self._win, width=e.width))
         self.root.bind_all("<MouseWheel>",
-            lambda e: self._canvas_scroll.yview_scroll(-1*(e.delta//120), "units"))
+            lambda e: self._cvs.yview_scroll(-1*(e.delta//120), "units"))
 
-        fi = self._frame_interieur
-        PX = 20
+        PX = 16
 
-        tk.Label(fi, text="🔐  Anchor Vault",
-                 font=("Segoe UI", 20, "bold"),
-                 fg=c["primary"], bg=c["bg"]).pack(pady=(22, 3))
-        tk.Label(fi, text="Générateur de mots de passe sécurisé",
-                 font=("Segoe UI", 10),
-                 fg=c["text_muted"], bg=c["bg"]).pack(pady=(0, 14))
+        # ── Sections ──
+        s1 = SectionCard(self._inner, titre="⚙  OPTIONS",
+                         ouvert=True, on_toggle=self._refresh_scroll)
+        s1.pack(fill="x", padx=PX, pady=(16, 8))
+        self._build_options(s1.corps)
 
-        sec1 = SectionExpandable(fi, titre="⚙️  Options", ouvert=True,
-                                  couleur_surface="surface",
-                                  on_toggle=self._refresh_scroll)
-        sec1.pack(fill="x", padx=PX, pady=(0, 10))
-        self._construire_section_options(sec1.corps)
+        s2 = SectionCard(self._inner, titre="🔑  RÉSULTAT",
+                         ouvert=True, on_toggle=self._refresh_scroll)
+        s2.pack(fill="x", padx=PX, pady=(0, 8))
+        self._build_resultat(s2.corps)
 
-        sec2 = SectionExpandable(fi, titre="🔑  Résultat", ouvert=True,
-                                  couleur_surface="surface",
-                                  on_toggle=self._refresh_scroll)
-        sec2.pack(fill="x", padx=PX, pady=(0, 10))
-        self._construire_section_resultat(sec2.corps)
+        s3 = SectionCard(self._inner, titre="🛡  ANALYSE DE SÉCURITÉ",
+                         badge=("CYBER", C["green_dark"]),
+                         ouvert=False, on_toggle=self._refresh_scroll)
+        s3.pack(fill="x", padx=PX, pady=(0, 8))
+        self._build_analyse(s3.corps)
 
-        sec3 = SectionExpandable(
-            fi, titre="🛡️  Analyse de sécurité",
-            badge_texte="CYBER", badge_couleur=c["primary"], badge_bg="#2e2a52",
-            ouvert=False, couleur_surface="surface2",
-            on_toggle=self._refresh_scroll)
-        sec3.pack(fill="x", padx=PX, pady=(0, 10))
-        self._construire_section_analyse(sec3.corps)
+        s4 = SectionCard(self._inner, titre="🔍  VÉRIFICATION DES LEAKS",
+                         badge=("HIBP", "#2a7a4a"),
+                         ouvert=False, on_toggle=self._refresh_scroll)
+        s4.pack(fill="x", padx=PX, pady=(0, 8))
+        self._build_hibp(s4.corps)
 
-        sec4 = SectionExpandable(
-            fi, titre="🔍  Vérification des leaks",
-            badge_texte="HIBP", badge_couleur="#4ade80", badge_bg="#1a2e1a",
-            ouvert=False, couleur_surface="surface2",
-            on_toggle=self._refresh_scroll)
-        sec4.pack(fill="x", padx=PX, pady=(0, 10))
-        self._construire_section_hibp(sec4.corps)
-
-        tk.Frame(fi, bg=c["bg"], height=20).pack()
-
-    def _on_frame_configure(self, _=None):
-        self._canvas_scroll.configure(
-            scrollregion=self._canvas_scroll.bbox("all"))
-
-    def _on_canvas_configure(self, event):
-        self._canvas_scroll.itemconfig(self._window_id, width=event.width)
+        tk.Frame(self._inner, bg=C["bg"], height=20).pack()
 
     def _refresh_scroll(self):
-        self._frame_interieur.update_idletasks()
-        self._canvas_scroll.configure(
-            scrollregion=self._canvas_scroll.bbox("all"))
+        self._inner.update_idletasks()
+        self._cvs.configure(scrollregion=self._cvs.bbox("all"))
 
-    # ── Sections ─────────────────────────────────────────────────────────
+    # ── Section Options ───────────────────────────────────────────────
 
-    def _construire_section_options(self, parent):
-        c  = self.C
-        bg = c["surface"]
+    def _build_options(self, p):
+        bg = C["card"]
 
-        self.var_longueur = tk.IntVar(value=16)
-        row_len = tk.Frame(parent, bg=bg)
-        row_len.pack(fill="x", pady=(0, 4))
-        tk.Label(row_len, text="Longueur", font=("Segoe UI", 10, "bold"),
-                 fg=c["text"], bg=bg).pack(side="left")
-        tk.Label(row_len, textvariable=self.var_longueur,
-                 font=("Segoe UI", 10, "bold"),
-                 fg=c["primary"], bg=bg).pack(side="right")
+        # Longueur
+        row = tk.Frame(p, bg=bg); row.pack(fill="x", pady=(0,4))
+        tk.Label(row, text="LONGUEUR",
+                 font=("Segoe UI", 8, "bold"),
+                 fg=C["text_muted"], bg=bg).pack(side="left")
+        self.var_lon = tk.IntVar(value=16)
+        self.lbl_lon = tk.Label(row, textvariable=self.var_lon,
+                                font=("Segoe UI", 11, "bold"),
+                                fg=C["green_dark"], bg=bg)
+        self.lbl_lon.pack(side="right")
 
-        tk.Scale(parent, from_=4, to=64, orient="horizontal",
-                 variable=self.var_longueur,
-                 bg=bg, fg=c["text_muted"],
-                 troughcolor=c["border"], activebackground=c["primary"],
+        tk.Scale(p, from_=4, to=64, orient="horizontal",
+                 variable=self.var_lon,
+                 bg=bg, fg=C["text_muted"],
+                 troughcolor=C["border_card"],
+                 activebackground=C["green"],
                  highlightthickness=0, bd=0, showvalue=False,
                  command=lambda _: self._mettre_a_jour_force()
-                 ).pack(fill="x", pady=(0, 12))
+                 ).pack(fill="x", pady=(0, 14))
 
-        tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(0, 12))
-        tk.Label(parent, text="Types de caractères",
-                 font=("Segoe UI", 10, "bold"),
-                 fg=c["text"], bg=bg).pack(anchor="w", pady=(0, 8))
+        tk.Frame(p, bg=C["border_card"], height=1).pack(fill="x", pady=(0,12))
+        tk.Label(p, text="TYPES DE CARACTÈRES",
+                 font=("Segoe UI", 8, "bold"),
+                 fg=C["text_muted"], bg=bg
+                 ).pack(anchor="w", pady=(0,8))
 
         self.var_maj = tk.BooleanVar(value=True)
         self.var_min = tk.BooleanVar(value=True)
         self.var_chf = tk.BooleanVar(value=True)
         self.var_sym = tk.BooleanVar(value=True)
 
-        grille = tk.Frame(parent, bg=bg)
-        grille.pack(fill="x")
+        g = tk.Frame(p, bg=bg); g.pack(fill="x")
         opts = [("Majuscules  (A–Z)", self.var_maj),
                 ("Minuscules  (a–z)", self.var_min),
-                ("Chiffres      (0–9)", self.var_chf),
-                ("Symboles  (!@#$…)", self.var_sym)]
-        for i, (lbl, var) in enumerate(opts):
-            tk.Checkbutton(grille, text=lbl, variable=var,
-                           font=("Segoe UI", 9), fg=c["text"], bg=bg,
-                           selectcolor=c["primary"],
-                           activebackground=bg, activeforeground=c["text"],
+                ("Chiffres    (0–9)", self.var_chf),
+                ("Symboles (!@#…)",  self.var_sym)]
+        for i,(lbl,var) in enumerate(opts):
+            tk.Checkbutton(g, text=lbl, variable=var,
+                           font=("Segoe UI", 9),
+                           fg=C["text_dark"], bg=bg,
+                           selectcolor=C["green_dark"],
+                           activebackground=bg,
+                           activeforeground=C["text_dark"],
                            cursor="hand2",
                            command=self._mettre_a_jour_force
                            ).grid(row=i//2, column=i%2, sticky="w",
                                   padx=(0,16), pady=2)
 
-        tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(14, 10))
+        tk.Frame(p, bg=C["border_card"], height=1).pack(fill="x", pady=(14,10))
 
-        row_force = tk.Frame(parent, bg=bg)
-        row_force.pack(fill="x", pady=(0, 6))
-        tk.Label(row_force, text="Force du mot de passe",
-                 font=("Segoe UI", 9, "bold"),
-                 fg=c["text_muted"], bg=bg).pack(side="left")
-        self.lbl_force = tk.Label(row_force, text="",
-                                   font=("Segoe UI", 9, "bold"),
-                                   fg=c["success"], bg=bg)
+        # Barre de force
+        row2 = tk.Frame(p, bg=bg); row2.pack(fill="x", pady=(0,6))
+        tk.Label(row2, text="FORCE",
+                 font=("Segoe UI", 8, "bold"),
+                 fg=C["text_muted"], bg=bg).pack(side="left")
+        self.lbl_force = tk.Label(row2, text="",
+                                   font=("Segoe UI", 8, "bold"),
+                                   fg=C["green"], bg=bg)
         self.lbl_force.pack(side="right")
 
-        self.canvas_barre = tk.Canvas(parent, height=8, bg=c["bar_bg"],
-                                       highlightthickness=0, bd=0)
-        self.canvas_barre.pack(fill="x", pady=(0, 4))
-        self.rect_barre = self.canvas_barre.create_rectangle(
-            0, 0, 0, 8, fill=c["success"], outline="")
+        bar_frame = tk.Frame(p, bg=C["input_bg"],
+                             highlightbackground=C["border_card"],
+                             highlightthickness=1)
+        bar_frame.pack(fill="x", pady=(0,4))
+        self.cvs_bar = tk.Canvas(bar_frame, height=8, bg=C["input_bg"],
+                                  highlightthickness=0, bd=0)
+        self.cvs_bar.pack(fill="x")
+        self.rect_bar = self.cvs_bar.create_rectangle(
+            0, 0, 0, 8, fill=C["green"], outline="")
 
-        self.lbl_erreur = tk.Label(parent, text="",
-                                    font=("Segoe UI", 9),
-                                    fg=c["error"], bg=bg, height=1)
-        self.lbl_erreur.pack(pady=(4, 0))
+        self.lbl_err = tk.Label(p, text="", font=("Segoe UI", 9),
+                                 fg=C["error"], bg=bg, height=1)
+        self.lbl_err.pack(pady=(4,0))
 
-        tk.Button(parent, text="⚡  Générer",
-                  font=("Segoe UI", 11, "bold"),
-                  fg="white", bg=c["primary"],
-                  activeforeground="white", activebackground=c["primary_hover"],
-                  relief="flat", cursor="hand2", pady=10, bd=0,
-                  command=self._on_generer
-                  ).pack(fill="x", pady=(8, 0))
+        BoutonPill(p, texte="⚡  GÉNÉRER",
+                   commande=self._on_generer,
+                   bg_btn=C["green"], fg_btn=C["green_text"],
+                   bg_parent=bg,
+                   largeur=410, hauteur=42
+                   ).pack(pady=(10,0))
 
-    def _construire_section_resultat(self, parent):
-        c  = self.C
-        bg = c["surface"]
+    # ── Section Résultat ──────────────────────────────────────────────
 
-        row = tk.Frame(parent, bg=bg)
-        row.pack(fill="x")
+    def _build_resultat(self, p):
+        bg = C["card"]
+        row = tk.Frame(p, bg=bg); row.pack(fill="x")
 
+        # Colonne gauche
         col_g = tk.Frame(row, bg=bg)
-        col_g.pack(side="left", fill="both", expand=True, padx=(0, 12))
+        col_g.pack(side="left", fill="both", expand=True, padx=(0,12))
 
-        # Label avec indication éditable
-        row_label = tk.Frame(col_g, bg=bg)
-        row_label.pack(fill="x", pady=(0, 6))
-        tk.Label(row_label, text="Mot de passe",
-                 font=("Segoe UI", 9), fg=c["text_muted"], bg=bg
-                 ).pack(side="left")
-        tk.Label(row_label, text="🖊️ éditable",
-                 font=("Segoe UI", 8, "italic"), fg=c["primary"], bg=bg
-                 ).pack(side="right")
+        row_lbl = tk.Frame(col_g, bg=bg); row_lbl.pack(fill="x", pady=(0,6))
+        tk.Label(row_lbl, text="MOT DE PASSE",
+                 font=("Segoe UI", 8, "bold"),
+                 fg=C["text_muted"], bg=bg).pack(side="left")
+        tk.Label(row_lbl, text="✏ éditable",
+                 font=("Segoe UI", 7, "italic"),
+                 fg=C["green_dark"], bg=bg).pack(side="right")
 
-        # Champ éditable (plus de state=readonly)
-        champ_frame = tk.Frame(col_g, bg=c["input_bg"],
-                               highlightbackground=c["border"],
+        entry_frame = tk.Frame(col_g, bg=C["input_bg"],
+                               highlightbackground=C["border_card"],
                                highlightthickness=1)
-        champ_frame.pack(fill="x")
-        self.var_resultat = tk.StringVar()
-        self.entry_mdp = tk.Entry(
-            champ_frame,
-            textvariable=self.var_resultat,
-            font=("Consolas", 12),
-            fg=c["success"],
-            bg=c["input_bg"],
-            insertbackground=c["text"],
-            relief="flat", bd=8,
-        )
-        self.entry_mdp.pack(fill="x")
+        entry_frame.pack(fill="x")
+
+        self.var_mdp = tk.StringVar()
+        self.entry = tk.Entry(entry_frame,
+                              textvariable=self.var_mdp,
+                              font=("Consolas", 12),
+                              fg=C["green_dark"],
+                              bg=C["input_bg"],
+                              insertbackground=C["text_dark"],
+                              relief="flat", bd=8)
+        self.entry.pack(fill="x")
 
         # Placeholder
-        self._placeholder_actif = True
-        self._placeholder_texte = "Génère ou saisis ton mot de passe…"
-        self._afficher_placeholder()
-        self.entry_mdp.bind("<FocusIn>",  self._on_focus_in)
-        self.entry_mdp.bind("<FocusOut>", self._on_focus_out)
+        self._ph_txt = "Génère ou saisis ton mot de passe…"
+        self._afficher_ph()
+        self.entry.bind("<FocusIn>",  self._focus_in)
+        self.entry.bind("<FocusOut>", self._focus_out)
+        self.var_mdp.trace_add("write", self._on_mdp_change)
 
-        # Détection des frappes → debounce
-        self.var_resultat.trace_add("write", self._on_mdp_change)
+        BoutonPill(col_g, texte="📋  COPIER",
+                   commande=self._on_copier,
+                   bg_btn=C["btn_dark"], fg_btn="#e8e8e8",
+                   bg_parent=bg,
+                   largeur=210, hauteur=38
+                   ).pack(pady=(8,0), anchor="w")
+        self._btn_copier_ref = None  # on garde ref pour feedback
 
-        self.btn_copier = tk.Button(
-            col_g, text="📋  Copier",
-            font=("Segoe UI", 10), fg=c["text"], bg=c["border"],
-            activeforeground="white", activebackground=c["primary"],
-            relief="flat", cursor="hand2", pady=8, bd=0,
-            command=self._on_copier)
-        self.btn_copier.pack(fill="x", pady=(8, 0))
-
-        # Identicon à droite
+        # Colonne droite — Identicon
         col_d = tk.Frame(row, bg=bg)
         col_d.pack(side="right", anchor="n")
-        tk.Label(col_d, text="ADN visuel",
-                 font=("Segoe UI", 7),
-                 fg=c["text_muted"], bg=bg).pack(pady=(0, 4))
-        self.canvas_identicon = tk.Canvas(
-            col_d, width=IDENTICON_SIZE, height=IDENTICON_SIZE,
-            bg="#1e1e30", highlightbackground=c["border"],
-            highlightthickness=1, bd=0)
-        self.canvas_identicon.pack()
-        generer_identicon("", self.canvas_identicon)
+        tk.Label(col_d, text="ADN VISUEL",
+                 font=("Segoe UI", 7, "bold"),
+                 fg=C["text_muted"], bg=bg).pack(pady=(0,4))
+        self.cvs_id = tk.Canvas(col_d, width=IS, height=IS,
+                                 bg=C["card"],
+                                 highlightbackground=C["border_card"],
+                                 highlightthickness=1, bd=0)
+        self.cvs_id.pack()
+        generer_identicon("", self.cvs_id, bg_card=C["card"])
         tk.Label(col_d, text="unique par mdp",
                  font=("Segoe UI", 7),
-                 fg=c["text_muted"], bg=bg).pack(pady=(4, 0))
+                 fg=C["text_faint"], bg=bg).pack(pady=(4,0))
 
-    def _construire_section_analyse(self, parent):
-        c  = self.C
-        bg = c["surface2"]
+    # ── Section Analyse ───────────────────────────────────────────────
 
-        row_e = tk.Frame(parent, bg=bg)
-        row_e.pack(fill="x", pady=(0, 8))
-        tk.Label(row_e, text="Entropie",
-                 font=("Segoe UI", 9), fg=c["text_muted"], bg=bg).pack(side="left")
+    def _build_analyse(self, p):
+        bg = C["card"]
+
+        row_e = tk.Frame(p, bg=bg); row_e.pack(fill="x", pady=(0,8))
+        tk.Label(row_e, text="ENTROPIE",
+                 font=("Segoe UI", 8, "bold"),
+                 fg=C["text_muted"], bg=bg).pack(side="left")
         self.lbl_entropie = tk.Label(row_e, text="— bits",
-                                      font=("Consolas", 9, "bold"),
-                                      fg=c["primary"], bg=bg)
+                                      font=("Consolas", 10, "bold"),
+                                      fg=C["green_dark"], bg=bg)
         self.lbl_entropie.pack(side="right")
 
-        tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(0, 10))
+        tk.Frame(p, bg=C["border_card"], height=1).pack(fill="x", pady=(0,10))
 
-        row_c = tk.Frame(parent, bg=bg)
-        row_c.pack(fill="x", pady=(0, 4))
-        tk.Label(row_c, text="⏱️  Temps de crack",
-                 font=("Segoe UI", 9), fg=c["text_muted"], bg=bg).pack(side="left")
+        row_c = tk.Frame(p, bg=bg); row_c.pack(fill="x", pady=(0,4))
+        tk.Label(row_c, text="TEMPS DE CRACK",
+                 font=("Segoe UI", 8, "bold"),
+                 fg=C["text_muted"], bg=bg).pack(side="left")
         self.lbl_temps = tk.Label(row_c, text="—",
-                                   font=("Segoe UI", 9, "bold"),
-                                   fg=c["success"], bg=bg)
+                                   font=("Segoe UI", 10, "bold"),
+                                   fg=C["green_dark"], bg=bg)
         self.lbl_temps.pack(side="right")
 
-        self.lbl_analogie = tk.Label(
-            parent, text="",
-            font=("Segoe UI", 9, "italic"),
-            fg=c["text_muted"], bg=bg,
+        self.lbl_analogie = tk.Label(p, text="",
+                                      font=("Segoe UI", 9, "italic"),
+                                      fg=C["text_muted"], bg=bg,
+                                      wraplength=380, justify="center")
+        self.lbl_analogie.pack(pady=(4,0))
+
+        tk.Frame(p, bg=C["border_card"], height=1).pack(fill="x", pady=(10,6))
+        tk.Label(p, text="Simulé sur RTX 4090 — brute force (10¹⁰ essais/sec)",
+                 font=("Segoe UI", 7),
+                 fg=C["text_faint"], bg=bg).pack()
+
+    # ── Section HIBP ──────────────────────────────────────────────────
+
+    def _build_hibp(self, p):
+        bg = C["card"]
+
+        self.lbl_hibp = tk.Label(p,
+            text="Génère ou saisis un mot de passe pour vérifier",
+            font=("Segoe UI", 10), fg=C["text_muted"], bg=bg,
             wraplength=390, justify="center")
-        self.lbl_analogie.pack(pady=(4, 0))
+        self.lbl_hibp.pack(pady=(0,6))
 
-        tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(10, 6))
-        tk.Label(parent,
-                 text="⚡ Simulé sur RTX 4090 — brute force (10¹⁰ essais/sec)",
-                 font=("Segoe UI", 7), fg=c["text_muted"], bg=bg).pack()
-
-    def _construire_section_hibp(self, parent):
-        c  = self.C
-        bg = c["surface2"]
-
-        self.lbl_hibp_statut = tk.Label(
-            parent, text="🔒  Gènère ou saisis un mot de passe pour vérifier",
-            font=("Segoe UI", 10), fg=c["text_muted"], bg=bg,
+        self.lbl_hibp2 = tk.Label(p, text="",
+            font=("Segoe UI", 8, "italic"), fg=C["text_faint"], bg=bg,
             wraplength=390, justify="center")
-        self.lbl_hibp_statut.pack(pady=(0, 6))
+        self.lbl_hibp2.pack()
 
-        self.lbl_hibp_detail = tk.Label(
-            parent, text="",
-            font=("Segoe UI", 8, "italic"), fg=c["text_muted"], bg=bg,
-            wraplength=390, justify="center")
-        self.lbl_hibp_detail.pack()
-
-        tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(10, 8))
-        tk.Label(parent,
-                 text="🛡️ K-anonymity : seuls 5 chars du hash SHA-1 sont envoyés — le vrai mdp ne quitte jamais l'app",
-                 font=("Segoe UI", 7), fg=c["text_muted"], bg=bg,
-                 wraplength=390, justify="center").pack()
+        tk.Frame(p, bg=C["border_card"], height=1).pack(fill="x", pady=(10,8))
+        tk.Label(p,
+            text="🛡 K-anonymity : seuls 5 chars du hash SHA-1 sont envoyés — le vrai mot de passe ne quitte jamais l'app",
+            font=("Segoe UI", 7), fg=C["text_faint"], bg=bg,
+            wraplength=390, justify="center").pack()
 
     # ── Placeholder ───────────────────────────────────────────────────
 
-    def _afficher_placeholder(self):
-        self.entry_mdp.config(fg="#4a4a6a")
-        self.var_resultat.set(self._placeholder_texte)
+    def _afficher_ph(self):
+        self.entry.config(fg="#bbbbbb")
+        self.var_mdp.set(self._ph_txt)
         self._placeholder_actif = True
 
-    def _on_focus_in(self, _=None):
+    def _focus_in(self, _=None):
         if self._placeholder_actif:
-            self.var_resultat.set("")
-            self.entry_mdp.config(fg=self.C["success"])
+            self.var_mdp.set("")
+            self.entry.config(fg=C["green_dark"])
             self._placeholder_actif = False
 
-    def _on_focus_out(self, _=None):
-        if not self.var_resultat.get():
-            self._afficher_placeholder()
+    def _focus_out(self, _=None):
+        if not self.var_mdp.get(): self._afficher_ph()
 
     def _mdp_reel(self):
-        """Retourne le vrai mdp ou '' si placeholder actif."""
-        if self._placeholder_actif:
-            return ""
-        return self.var_resultat.get()
+        return "" if self._placeholder_actif else self.var_mdp.get()
 
-    # ── Debounce frappe → identicon + HIBP ────────────────────────────
+    # ── Frappe → debounce ─────────────────────────────────────────────
 
     def _on_mdp_change(self, *_):
-        """Déclenché à chaque frappe. Met à jour force + lance debounce."""
-        if self._placeholder_actif:
-            return
-        mdp = self.var_resultat.get()
+        if self._placeholder_actif: return
+        mdp = self.var_mdp.get()
 
-        # Force en temps réel (instantané)
-        label, couleur, ratio = evaluer_force_mdp(mdp)
-        self.lbl_force.config(text=label, fg=couleur)
-        self.canvas_barre.update_idletasks()
-        lw = self.canvas_barre.winfo_width()
-        self.canvas_barre.coords(self.rect_barre, 0, 0, int(lw * ratio), 8)
-        self.canvas_barre.itemconfig(self.rect_barre, fill=couleur)
+        # Force
+        lbl, col, ratio = evaluer_force_mdp(mdp)
+        self.lbl_force.config(text=lbl, fg=col)
+        self.cvs_bar.update_idletasks()
+        lw = self.cvs_bar.winfo_width()
+        self.cvs_bar.coords(self.rect_bar, 0, 0, int(lw*ratio), 8)
+        self.cvs_bar.itemconfig(self.rect_bar, fill=col)
 
-        # Entropie en temps réel
-        entropie = calculer_entropie_mdp(mdp)
-        secondes = calculer_temps_crack(entropie)
-        duree, analogie, coul = formater_temps(secondes)
-        if entropie > 0:
-            self.lbl_entropie.config(text=f"{entropie:.1f} bits")
-            self.lbl_temps.config(text=duree, fg=coul)
-            self.lbl_analogie.config(text=analogie, fg=coul)
+        # Entropie
+        e = _entropie_mdp(mdp); s = _crack(e); dur, ana, coul = _formater(s)
+        if e > 0:
+            self.lbl_entropie.config(text=f"{e:.1f} bits")
+            self.lbl_temps.config(text=dur, fg=coul)
+            self.lbl_analogie.config(text=ana, fg=coul)
         else:
             self.lbl_entropie.config(text="— bits")
-            self.lbl_temps.config(text="—", fg=self.C["text_muted"])
+            self.lbl_temps.config(text="—", fg=C["text_muted"])
             self.lbl_analogie.config(text="")
 
         # Identicon immédiat
-        generer_identicon(mdp, self.canvas_identicon)
+        generer_identicon(mdp, self.cvs_id, bg_card=C["card"])
 
-        # Debounce pour HIBP (attend 600ms de pause avant d'appeler l'API)
-        if self._debounce_id:
-            self.root.after_cancel(self._debounce_id)
+        # Debounce HIBP
+        if self._debounce_id: self.root.after_cancel(self._debounce_id)
         if mdp:
-            self.lbl_hibp_statut.config(
-                text="⏳  Vérification en cours…",
-                fg=self.C["text_muted"])
-            self.lbl_hibp_detail.config(text="")
+            self.lbl_hibp.config(text="⏳  Vérification en cours…", fg=C["text_muted"])
+            self.lbl_hibp2.config(text="")
             self._debounce_id = self.root.after(
-                self.DEBOUNCE_MS,
-                lambda m=mdp: self._lancer_hibp(m)
-            )
+                self.DEBOUNCE_MS, lambda m=mdp: self._lancer_hibp(m))
         else:
             self._reset_hibp()
 
-    # ── Logique principale ─────────────────────────────────────────────
+    # ── Logique principale ────────────────────────────────────────────
 
     def _mettre_a_jour_force(self):
-        """Mise à jour depuis les options (slider / checkboxes)."""
-        lon = self.var_longueur.get()
-        maj, min_, chf, sym = (
-            self.var_maj.get(), self.var_min.get(),
-            self.var_chf.get(), self.var_sym.get()
-        )
-        label, couleur, ratio = evaluer_force(lon, maj, min_, chf, sym)
-        self.lbl_force.config(text=label, fg=couleur)
-        self.canvas_barre.update_idletasks()
-        lw = self.canvas_barre.winfo_width()
-        self.canvas_barre.coords(self.rect_barre, 0, 0, int(lw * ratio), 8)
-        self.canvas_barre.itemconfig(self.rect_barre, fill=couleur)
-
-        entropie = calculer_entropie(lon, maj, min_, chf, sym)
-        secondes = calculer_temps_crack(entropie)
-        duree, analogie, coul = formater_temps(secondes)
-        if entropie > 0:
-            self.lbl_entropie.config(text=f"{entropie:.1f} bits")
-            self.lbl_temps.config(text=duree, fg=coul)
-            self.lbl_analogie.config(text=analogie, fg=coul)
+        lon = self.var_lon.get()
+        maj,min_,chf,sym = (self.var_maj.get(),self.var_min.get(),
+                             self.var_chf.get(),self.var_sym.get())
+        lbl,col,ratio = evaluer_force(lon,maj,min_,chf,sym)
+        self.lbl_force.config(text=lbl, fg=col)
+        self.cvs_bar.update_idletasks()
+        lw = self.cvs_bar.winfo_width()
+        self.cvs_bar.coords(self.rect_bar, 0, 0, int(lw*ratio), 8)
+        self.cvs_bar.itemconfig(self.rect_bar, fill=col)
+        e = _entropie(lon,maj,min_,chf,sym); s = _crack(e)
+        dur,ana,coul = _formater(s)
+        if e > 0:
+            self.lbl_entropie.config(text=f"{e:.1f} bits")
+            self.lbl_temps.config(text=dur, fg=coul)
+            self.lbl_analogie.config(text=ana, fg=coul)
         else:
             self.lbl_entropie.config(text="— bits")
-            self.lbl_temps.config(text="—", fg=self.C["text_muted"])
+            self.lbl_temps.config(text="—", fg=C["text_muted"])
             self.lbl_analogie.config(text="Coche au moins un type de caractère",
-                                      fg=self.C["error"])
+                                      fg=C["error"])
 
     def _on_generer(self):
         mdp = generer_mot_de_passe(
-            self.var_longueur.get(),
+            self.var_lon.get(),
             self.var_maj.get(), self.var_min.get(),
-            self.var_chf.get(), self.var_sym.get()
-        )
+            self.var_chf.get(), self.var_sym.get())
         if mdp is None:
-            self.lbl_erreur.config(text="⚠️  Coche au moins un type de caractère !")
-            self.var_resultat.set("")
-            generer_identicon("", self.canvas_identicon)
-            self._reset_hibp()
+            self.lbl_err.config(text="⚠  Coche au moins un type de caractère !")
             return
-
-        self.lbl_erreur.config(text="")
-        # Désactiver le placeholder manuellement avant d'injecter
+        self.lbl_err.config(text="")
         self._placeholder_actif = False
-        self.entry_mdp.config(fg=self.C["success"])
-        self.var_resultat.set(mdp)   # déclenche _on_mdp_change automatiquement
-        self.btn_copier.config(text="📋  Copier",
-                               fg=self.C["text"], bg=self.C["border"])
+        self.entry.config(fg=C["green_dark"])
+        self.var_mdp.set(mdp)
 
     def _reset_hibp(self):
-        self.lbl_hibp_statut.config(
-            text="🔒  Gènère ou saisis un mot de passe pour vérifier",
-            fg=self.C["text_muted"]
-        )
-        self.lbl_hibp_detail.config(text="")
-        self._dernier_mdp_hibp = ""
+        self.lbl_hibp.config(
+            text="Génère ou saisis un mot de passe pour vérifier",
+            fg=C["text_muted"])
+        self.lbl_hibp2.config(text="")
+        self._dernier_hibp = ""
 
     def _lancer_hibp(self, mdp):
-        if mdp == self._dernier_mdp_hibp:
-            return
-        self._dernier_mdp_hibp = mdp
+        if mdp == self._dernier_hibp: return
+        self._dernier_hibp = mdp
         if not REQUESTS_AVAILABLE:
-            self.lbl_hibp_statut.config(
-                text="📦  Module 'requests' non installé",
-                fg=self.C["warning"])
-            self.lbl_hibp_detail.config(
-                text="Lance : pip install requests",
-                fg=self.C["text_muted"])
+            self.lbl_hibp.config(text="📦  Module 'requests' non installé", fg=C["warning"])
+            self.lbl_hibp2.config(text="pip install requests", fg=C["text_muted"])
             return
-        self.lbl_hibp_statut.config(
-            text="⏳  Vérification en cours…", fg=self.C["text_muted"])
-        self.lbl_hibp_detail.config(text="")
-        def _cb(res):
-            self.root.after(0, lambda: self._afficher_resultat_hibp(res, mdp))
+        def _cb(r): self.root.after(0, lambda: self._show_hibp(r, mdp))
         verifier_hibp(mdp, _cb)
 
-    def _afficher_resultat_hibp(self, resultat, mdp_verifie):
-        if mdp_verifie != self._dernier_mdp_hibp:
-            return
-        if resultat == -2:
-            self.lbl_hibp_statut.config(text="📦  Module 'requests' requis",
-                                         fg=self.C["warning"])
-            self.lbl_hibp_detail.config(text="pip install requests",
-                                         fg=self.C["text_muted"])
-        elif resultat == -1:
-            self.lbl_hibp_statut.config(
-                text="🔌  Vérification impossible (pas de connexion)",
-                fg=self.C["warning"])
-            self.lbl_hibp_detail.config(
-                text="Le mot de passe n'a pas été envoyé sur le réseau.",
-                fg=self.C["text_muted"])
-        elif resultat == 0:
-            self.lbl_hibp_statut.config(
-                text="✅  Propre — non trouvé dans les bases de leaks",
-                fg=self.C["success"])
-            self.lbl_hibp_detail.config(
-                text="Ce mot de passe n'apparaît dans aucune fuite de données connue.",
-                fg=self.C["text_muted"])
+    def _show_hibp(self, res, mdp):
+        if mdp != self._dernier_hibp: return
+        if res == -2:
+            self.lbl_hibp.config(text="📦  pip install requests", fg=C["warning"])
+        elif res == -1:
+            self.lbl_hibp.config(text="🔌  Pas de connexion", fg=C["warning"])
+            self.lbl_hibp2.config(text="Le mot de passe n'a pas quitté l'app.",
+                                   fg=C["text_faint"])
+        elif res == 0:
+            self.lbl_hibp.config(text="✅  Propre — non trouvé dans les leaks",
+                                  fg=C["green_dark"])
+            self.lbl_hibp2.config(
+                text="Aucune fuite de données connue pour ce mot de passe.",
+                fg=C["text_muted"])
         else:
-            count_str = f"{resultat:,}".replace(",", " ")
-            self.lbl_hibp_statut.config(
-                text=f"⚠️  Trouvé {count_str} fois dans des leaks !",
-                fg=self.C["error"])
-            self.lbl_hibp_detail.config(
-                text="Ce mot de passe est compromis. Génères-en un nouveau.",
-                fg=self.C["error"])
+            cnt = f"{res:,}".replace(","," ")
+            self.lbl_hibp.config(text=f"⚠  Trouvé {cnt} fois dans des leaks !",
+                                  fg=C["error"])
+            self.lbl_hibp2.config(text="Mot de passe compromis — génères-en un nouveau.",
+                                   fg=C["error"])
 
     def _on_copier(self):
         mdp = self._mdp_reel()
-        if not mdp:
-            return
+        if not mdp: return
         if CLIPBOARD_AVAILABLE:
             pyperclip.copy(mdp)
         else:
             self.root.clipboard_clear()
             self.root.clipboard_append(mdp)
             self.root.update()
-        self.btn_copier.config(text="✅  Copié !", fg="white", bg="#3aad6a")
-        self.root.after(2000, lambda: self.btn_copier.config(
-            text="📋  Copier", fg=self.C["text"], bg=self.C["border"]))
+        # feedback visuel temporaire sur le label COPIER
+        # (le BoutonPill ne stocke pas de ref directe, on utilise un label flottant)
+        fb = tk.Label(self._inner, text="✅  Copié !",
+                      font=("Segoe UI", 9, "bold"),
+                      fg=C["green_dark"], bg=C["bg"])
+        fb.place(relx=0.5, rely=0.92, anchor="center")
+        self.root.after(1800, fb.destroy)
 
 
 if __name__ == "__main__":
