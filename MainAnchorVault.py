@@ -1,7 +1,7 @@
 """
 🔐 Anchor Vault — Générateur de mots de passe sécurisé
 Stack : Python 3.10+ | Tkinter | secrets | math | hashlib | threading | requests
-Version : 4.1 — Fenêtre scrollable + sections expandables (accordion)
+Version : 4.2 — Champ éditable : identicon + HIBP sur saisie manuelle
 """
 
 import hashlib
@@ -52,6 +52,29 @@ def generer_mot_de_passe(longueur, majuscules, minuscules, chiffres, symboles):
     return "".join(mdp)
 
 
+def evaluer_force_mdp(mdp):
+    """
+    Évalue la force d'un mot de passe arbitraire (saisie manuelle).
+    Retourne (label, couleur, ratio).
+    """
+    if not mdp:
+        return "—", "#9898b0", 0.0
+    lon = len(mdp)
+    has_maj = any(c.isupper() for c in mdp)
+    has_min = any(c.islower() for c in mdp)
+    has_chf = any(c.isdigit() for c in mdp)
+    has_sym = any(not c.isalnum() for c in mdp)
+    types = sum([has_maj, has_min, has_chf, has_sym])
+    if lon < 8 or types == 1:
+        return "😟  Très faible", "#f87171", 0.15
+    elif lon < 12 or types == 2:
+        return "😐  Faible",      "#fb923c", 0.40
+    elif lon < 16 or types == 3:
+        return "🙂  Fort",        "#facc15", 0.70
+    else:
+        return "😎  Très fort",   "#4ade80", 1.00
+
+
 def evaluer_force(longueur, majuscules, minuscules, chiffres, symboles):
     types_actifs = sum([majuscules, minuscules, chiffres, symboles])
     if longueur < 8 or types_actifs == 1:
@@ -65,7 +88,7 @@ def evaluer_force(longueur, majuscules, minuscules, chiffres, symboles):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FEATURE 1 — ENTROPIE + TEMPS DE CRACKAGE + ANALOGIES FUN
+#  FEATURE 1 — ENTROPIE + TEMPS DE CRACKAGE
 # ══════════════════════════════════════════════════════════════════════════════
 
 VITESSE_GPU = 10_000_000_000
@@ -78,6 +101,18 @@ def calculer_entropie(longueur, majuscules, minuscules, chiffres, symboles):
     if chiffres:   alphabet += 10
     if symboles:   alphabet += 32
     return longueur * math.log2(alphabet) if alphabet > 0 else 0.0
+
+
+def calculer_entropie_mdp(mdp):
+    """Entropie basée sur l'alphabet réellement utilisé dans le mot de passe."""
+    if not mdp:
+        return 0.0
+    alphabet = 0
+    if any(c.isupper() for c in mdp): alphabet += 26
+    if any(c.islower() for c in mdp): alphabet += 26
+    if any(c.isdigit() for c in mdp): alphabet += 10
+    if any(not c.isalnum() for c in mdp): alphabet += 32
+    return len(mdp) * math.log2(alphabet) if alphabet > 0 else 0.0
 
 
 def calculer_temps_crack(entropie_bits):
@@ -193,87 +228,66 @@ def verifier_hibp(mdp, callback):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class SectionExpandable(tk.Frame):
-    """
-    Carte accordion réutilisable.
-    - En-tête cliquable avec titre, badge optionnel et chevron ▶/▼
-    - Corps masquable d'un clic
-    - S'intègre dans un conteneur scrollable
-    """
-
     C = {
-        "bg":         "#1e1e2e",
-        "surface":    "#2a2a3e",
-        "surface2":   "#23233a",
-        "border":     "#3d3d5c",
-        "primary":    "#7c6af7",
-        "text":       "#e2e2f0",
-        "text_muted": "#9898b0",
+        "bg":           "#1e1e2e",
+        "surface":      "#2a2a3e",
+        "surface2":     "#23233a",
+        "border":       "#3d3d5c",
+        "primary":      "#7c6af7",
+        "text":         "#e2e2f0",
+        "text_muted":   "#9898b0",
         "header_hover": "#32324a",
     }
 
     def __init__(self, parent, titre, badge_texte=None, badge_couleur=None,
                  badge_bg=None, ouvert=True, couleur_surface="surface",
                  on_toggle=None, **kwargs):
-        c = self.C
-        bg_surface = c[couleur_surface]
-        super().__init__(parent, bg=bg_surface,
+        c  = self.C
+        bg = c[couleur_surface]
+        super().__init__(parent, bg=bg,
                          highlightbackground=c["border"], highlightthickness=1,
                          **kwargs)
-
         self._ouvert    = ouvert
         self._on_toggle = on_toggle
-        self._bg        = bg_surface
+        self._bg        = bg
 
-        # ─ En-tête (toujours visible) ────────────────────────────────
-        self._header = tk.Frame(self, bg=bg_surface, cursor="hand2")
+        self._header = tk.Frame(self, bg=bg, cursor="hand2")
         self._header.pack(fill="x", padx=14, pady=(10, 10))
 
         self._lbl_chevron = tk.Label(
-            self._header,
-            text="▼" if ouvert else "▶",
-            font=("Segoe UI", 8),
-            fg=c["text_muted"], bg=bg_surface
-        )
+            self._header, text="▼" if ouvert else "▶",
+            font=("Segoe UI", 8), fg=c["text_muted"], bg=bg)
         self._lbl_chevron.pack(side="left", padx=(0, 6))
 
-        tk.Label(
-            self._header, text=titre,
-            font=("Segoe UI", 10, "bold"),
-            fg=c["text"], bg=bg_surface
-        ).pack(side="left")
+        tk.Label(self._header, text=titre,
+                 font=("Segoe UI", 10, "bold"),
+                 fg=c["text"], bg=bg).pack(side="left")
 
         if badge_texte:
-            tk.Label(
-                self._header,
-                text=f" {badge_texte} ",
-                font=("Segoe UI", 7, "bold"),
-                fg=badge_couleur or c["primary"],
-                bg=badge_bg or "#2e2a52",
-                padx=4, pady=2
-            ).pack(side="right")
+            tk.Label(self._header, text=f" {badge_texte} ",
+                     font=("Segoe UI", 7, "bold"),
+                     fg=badge_couleur or c["primary"],
+                     bg=badge_bg or "#2e2a52",
+                     padx=4, pady=2).pack(side="right")
 
-        # ─ Corps (masquable) ───────────────────────────────────────
         self._separateur = tk.Frame(self, bg=c["border"], height=1)
-        self._corps = tk.Frame(self, bg=bg_surface)
+        self._corps = tk.Frame(self, bg=bg)
         self._corps.pack(fill="x", padx=18, pady=(0, 16))
-
         if not ouvert:
             self._corps.pack_forget()
         else:
             self._separateur.pack(fill="x")
 
-        # Binding clics sur l'en-tête
-        for widget in (self._header, self._lbl_chevron):
-            widget.bind("<Button-1>", self._basculer)
-            widget.bind("<Enter>",    lambda e: self._header.config(bg=c["header_hover"]))
-            widget.bind("<Leave>",    lambda e: self._header.config(bg=bg_surface))
+        for w in (self._header, self._lbl_chevron):
+            w.bind("<Button-1>", self._basculer)
+            w.bind("<Enter>",    lambda e: self._header.config(bg=c["header_hover"]))
+            w.bind("<Leave>",    lambda e: self._header.config(bg=bg))
 
     @property
     def corps(self):
-        """Le Frame intérieur où placer le contenu de la section."""
         return self._corps
 
-    def _basculer(self, _event=None):
+    def _basculer(self, _=None):
         self._ouvert = not self._ouvert
         if self._ouvert:
             self._separateur.pack(fill="x")
@@ -309,23 +323,23 @@ class AnchorVaultApp:
         "bar_bg":        "#12121f",
     }
 
-    LARGEUR  = 480
-    HAUTEUR  = 620   # fenêtre compacte — scroll pour le reste
+    LARGEUR = 480
+    HAUTEUR = 620
+    DEBOUNCE_MS = 600   # délai avant déclenchement identicon + HIBP
 
     def __init__(self, root):
         self.root = root
         self._dernier_mdp_hibp = ""
+        self._debounce_id      = None   # ID du after() en cours
         self._configurer_fenetre()
         self._construire_ui()
         self._mettre_a_jour_force()
-
-    # ── Fenêtre ─────────────────────────────────────────────────────────
 
     def _configurer_fenetre(self):
         self.root.title("Anchor Vault v4")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        x  = (sw - self.LARGEUR)  // 2
+        x  = (sw - self.LARGEUR) // 2
         y  = (sh - self.HAUTEUR) // 2
         self.root.geometry(f"{self.LARGEUR}x{self.HAUTEUR}+{x}+{y}")
         self.root.resizable(False, False)
@@ -335,41 +349,29 @@ class AnchorVaultApp:
 
     def _construire_ui(self):
         c = self.C
-
-        # ─ Conteneur principal avec scrollbar ─────────────────────────
         outer = tk.Frame(self.root, bg=c["bg"])
         outer.pack(fill="both", expand=True)
 
-        self._canvas_scroll = tk.Canvas(
-            outer, bg=c["bg"], highlightthickness=0, bd=0
-        )
-        scrollbar = ttk.Scrollbar(
-            outer, orient="vertical", command=self._canvas_scroll.yview
-        )
+        self._canvas_scroll = tk.Canvas(outer, bg=c["bg"],
+                                         highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(outer, orient="vertical",
+                                   command=self._canvas_scroll.yview)
         self._canvas_scroll.configure(yscrollcommand=scrollbar.set)
-
         scrollbar.pack(side="right", fill="y")
         self._canvas_scroll.pack(side="left", fill="both", expand=True)
 
-        # Frame intérieur (tout le contenu s'y place)
         self._frame_interieur = tk.Frame(self._canvas_scroll, bg=c["bg"])
         self._window_id = self._canvas_scroll.create_window(
-            (0, 0), window=self._frame_interieur, anchor="nw"
-        )
+            (0, 0), window=self._frame_interieur, anchor="nw")
 
-        # Mise à jour de la scrollregion quand le contenu change de taille
         self._frame_interieur.bind("<Configure>", self._on_frame_configure)
         self._canvas_scroll.bind("<Configure>",   self._on_canvas_configure)
-
-        # Molette souris
         self.root.bind_all("<MouseWheel>",
             lambda e: self._canvas_scroll.yview_scroll(-1*(e.delta//120), "units"))
 
-        # ─ Contenu ──────────────────────────────────────────────────
         fi = self._frame_interieur
         PX = 20
 
-        # Titre
         tk.Label(fi, text="🔐  Anchor Vault",
                  font=("Segoe UI", 20, "bold"),
                  fg=c["primary"], bg=c["bg"]).pack(pady=(22, 3))
@@ -377,63 +379,52 @@ class AnchorVaultApp:
                  font=("Segoe UI", 10),
                  fg=c["text_muted"], bg=c["bg"]).pack(pady=(0, 14))
 
-        # ── SECTION 1 : Options (▼ ouverte par défaut) ───────────────
-        sec1 = SectionExpandable(
-            fi, titre="⚙️  Options", ouvert=True,
-            couleur_surface="surface", on_toggle=self._refresh_scroll
-        )
+        sec1 = SectionExpandable(fi, titre="⚙️  Options", ouvert=True,
+                                  couleur_surface="surface",
+                                  on_toggle=self._refresh_scroll)
         sec1.pack(fill="x", padx=PX, pady=(0, 10))
         self._construire_section_options(sec1.corps)
 
-        # ── SECTION 2 : Résultat (▼ ouverte par défaut) ─────────────
-        sec2 = SectionExpandable(
-            fi, titre="🔑  Résultat", ouvert=True,
-            couleur_surface="surface", on_toggle=self._refresh_scroll
-        )
+        sec2 = SectionExpandable(fi, titre="🔑  Résultat", ouvert=True,
+                                  couleur_surface="surface",
+                                  on_toggle=self._refresh_scroll)
         sec2.pack(fill="x", padx=PX, pady=(0, 10))
         self._construire_section_resultat(sec2.corps)
 
-        # ── SECTION 3 : Analyse (▶ fermée par défaut) ─────────────
         sec3 = SectionExpandable(
             fi, titre="🛡️  Analyse de sécurité",
             badge_texte="CYBER", badge_couleur=c["primary"], badge_bg="#2e2a52",
-            ouvert=False, couleur_surface="surface2", on_toggle=self._refresh_scroll
-        )
+            ouvert=False, couleur_surface="surface2",
+            on_toggle=self._refresh_scroll)
         sec3.pack(fill="x", padx=PX, pady=(0, 10))
         self._construire_section_analyse(sec3.corps)
 
-        # ── SECTION 4 : HIBP (▶ fermée par défaut) ───────────────
         sec4 = SectionExpandable(
             fi, titre="🔍  Vérification des leaks",
             badge_texte="HIBP", badge_couleur="#4ade80", badge_bg="#1a2e1a",
-            ouvert=False, couleur_surface="surface2", on_toggle=self._refresh_scroll
-        )
+            ouvert=False, couleur_surface="surface2",
+            on_toggle=self._refresh_scroll)
         sec4.pack(fill="x", padx=PX, pady=(0, 10))
         self._construire_section_hibp(sec4.corps)
 
-        # Espace bas
         tk.Frame(fi, bg=c["bg"], height=20).pack()
 
-    def _on_frame_configure(self, _event=None):
+    def _on_frame_configure(self, _=None):
         self._canvas_scroll.configure(
-            scrollregion=self._canvas_scroll.bbox("all")
-        )
+            scrollregion=self._canvas_scroll.bbox("all"))
 
     def _on_canvas_configure(self, event):
-        # Le frame intérieur prend toute la largeur du canvas
         self._canvas_scroll.itemconfig(self._window_id, width=event.width)
 
     def _refresh_scroll(self):
-        """Appelé après chaque toggle pour recalculer la scrollregion."""
         self._frame_interieur.update_idletasks()
         self._canvas_scroll.configure(
-            scrollregion=self._canvas_scroll.bbox("all")
-        )
+            scrollregion=self._canvas_scroll.bbox("all"))
 
-    # ── Constructeurs de sections ─────────────────────────────────────
+    # ── Sections ─────────────────────────────────────────────────────────
 
     def _construire_section_options(self, parent):
-        c = self.C
+        c  = self.C
         bg = c["surface"]
 
         self.var_longueur = tk.IntVar(value=16)
@@ -445,17 +436,15 @@ class AnchorVaultApp:
                  font=("Segoe UI", 10, "bold"),
                  fg=c["primary"], bg=bg).pack(side="right")
 
-        tk.Scale(
-            parent, from_=4, to=64, orient="horizontal",
-            variable=self.var_longueur,
-            bg=bg, fg=c["text_muted"],
-            troughcolor=c["border"], activebackground=c["primary"],
-            highlightthickness=0, bd=0, showvalue=False,
-            command=lambda _: self._mettre_a_jour_force()
-        ).pack(fill="x", pady=(0, 12))
+        tk.Scale(parent, from_=4, to=64, orient="horizontal",
+                 variable=self.var_longueur,
+                 bg=bg, fg=c["text_muted"],
+                 troughcolor=c["border"], activebackground=c["primary"],
+                 highlightthickness=0, bd=0, showvalue=False,
+                 command=lambda _: self._mettre_a_jour_force()
+                 ).pack(fill="x", pady=(0, 12))
 
         tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(0, 12))
-
         tk.Label(parent, text="Types de caractères",
                  font=("Segoe UI", 10, "bold"),
                  fg=c["text"], bg=bg).pack(anchor="w", pady=(0, 8))
@@ -467,16 +456,19 @@ class AnchorVaultApp:
 
         grille = tk.Frame(parent, bg=bg)
         grille.pack(fill="x")
-        opts = [("Majuscules  (A–Z)", self.var_maj), ("Minuscules  (a–z)", self.var_min),
-                ("Chiffres      (0–9)", self.var_chf), ("Symboles  (!@#$…)", self.var_sym)]
+        opts = [("Majuscules  (A–Z)", self.var_maj),
+                ("Minuscules  (a–z)", self.var_min),
+                ("Chiffres      (0–9)", self.var_chf),
+                ("Symboles  (!@#$…)", self.var_sym)]
         for i, (lbl, var) in enumerate(opts):
-            tk.Checkbutton(
-                grille, text=lbl, variable=var,
-                font=("Segoe UI", 9), fg=c["text"], bg=bg,
-                selectcolor=c["primary"],
-                activebackground=bg, activeforeground=c["text"],
-                cursor="hand2", command=self._mettre_a_jour_force
-            ).grid(row=i//2, column=i%2, sticky="w", padx=(0,16), pady=2)
+            tk.Checkbutton(grille, text=lbl, variable=var,
+                           font=("Segoe UI", 9), fg=c["text"], bg=bg,
+                           selectcolor=c["primary"],
+                           activebackground=bg, activeforeground=c["text"],
+                           cursor="hand2",
+                           command=self._mettre_a_jour_force
+                           ).grid(row=i//2, column=i%2, sticky="w",
+                                  padx=(0,16), pady=2)
 
         tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(14, 10))
 
@@ -496,21 +488,21 @@ class AnchorVaultApp:
         self.rect_barre = self.canvas_barre.create_rectangle(
             0, 0, 0, 8, fill=c["success"], outline="")
 
-        self.lbl_erreur = tk.Label(parent, text="", font=("Segoe UI", 9),
+        self.lbl_erreur = tk.Label(parent, text="",
+                                    font=("Segoe UI", 9),
                                     fg=c["error"], bg=bg, height=1)
         self.lbl_erreur.pack(pady=(4, 0))
 
-        tk.Button(
-            parent, text="⚡  Générer",
-            font=("Segoe UI", 11, "bold"),
-            fg="white", bg=c["primary"],
-            activeforeground="white", activebackground=c["primary_hover"],
-            relief="flat", cursor="hand2", pady=10, bd=0,
-            command=self._on_generer
-        ).pack(fill="x", pady=(8, 0))
+        tk.Button(parent, text="⚡  Générer",
+                  font=("Segoe UI", 11, "bold"),
+                  fg="white", bg=c["primary"],
+                  activeforeground="white", activebackground=c["primary_hover"],
+                  relief="flat", cursor="hand2", pady=10, bd=0,
+                  command=self._on_generer
+                  ).pack(fill="x", pady=(8, 0))
 
     def _construire_section_resultat(self, parent):
-        c = self.C
+        c  = self.C
         bg = c["surface"]
 
         row = tk.Frame(parent, bg=bg)
@@ -519,43 +511,65 @@ class AnchorVaultApp:
         col_g = tk.Frame(row, bg=bg)
         col_g.pack(side="left", fill="both", expand=True, padx=(0, 12))
 
-        tk.Label(col_g, text="Mot de passe généré",
+        # Label avec indication éditable
+        row_label = tk.Frame(col_g, bg=bg)
+        row_label.pack(fill="x", pady=(0, 6))
+        tk.Label(row_label, text="Mot de passe",
                  font=("Segoe UI", 9), fg=c["text_muted"], bg=bg
-                 ).pack(anchor="w", pady=(0, 6))
+                 ).pack(side="left")
+        tk.Label(row_label, text="🖊️ éditable",
+                 font=("Segoe UI", 8, "italic"), fg=c["primary"], bg=bg
+                 ).pack(side="right")
 
+        # Champ éditable (plus de state=readonly)
         champ_frame = tk.Frame(col_g, bg=c["input_bg"],
-                               highlightbackground=c["border"], highlightthickness=1)
+                               highlightbackground=c["border"],
+                               highlightthickness=1)
         champ_frame.pack(fill="x")
         self.var_resultat = tk.StringVar()
-        tk.Entry(
-            champ_frame, textvariable=self.var_resultat,
-            font=("Consolas", 12), fg=c["success"],
-            bg=c["input_bg"], insertbackground=c["text"],
+        self.entry_mdp = tk.Entry(
+            champ_frame,
+            textvariable=self.var_resultat,
+            font=("Consolas", 12),
+            fg=c["success"],
+            bg=c["input_bg"],
+            insertbackground=c["text"],
             relief="flat", bd=8,
-            state="readonly", readonlybackground=c["input_bg"]
-        ).pack(fill="x")
+        )
+        self.entry_mdp.pack(fill="x")
+
+        # Placeholder
+        self._placeholder_actif = True
+        self._placeholder_texte = "Génère ou saisis ton mot de passe…"
+        self._afficher_placeholder()
+        self.entry_mdp.bind("<FocusIn>",  self._on_focus_in)
+        self.entry_mdp.bind("<FocusOut>", self._on_focus_out)
+
+        # Détection des frappes → debounce
+        self.var_resultat.trace_add("write", self._on_mdp_change)
 
         self.btn_copier = tk.Button(
             col_g, text="📋  Copier",
             font=("Segoe UI", 10), fg=c["text"], bg=c["border"],
             activeforeground="white", activebackground=c["primary"],
             relief="flat", cursor="hand2", pady=8, bd=0,
-            command=self._on_copier
-        )
+            command=self._on_copier)
         self.btn_copier.pack(fill="x", pady=(8, 0))
 
+        # Identicon à droite
         col_d = tk.Frame(row, bg=bg)
         col_d.pack(side="right", anchor="n")
-        tk.Label(col_d, text="ADN visuel", font=("Segoe UI", 7),
+        tk.Label(col_d, text="ADN visuel",
+                 font=("Segoe UI", 7),
                  fg=c["text_muted"], bg=bg).pack(pady=(0, 4))
         self.canvas_identicon = tk.Canvas(
             col_d, width=IDENTICON_SIZE, height=IDENTICON_SIZE,
             bg="#1e1e30", highlightbackground=c["border"],
-            highlightthickness=1, bd=0
-        )
+            highlightthickness=1, bd=0)
         self.canvas_identicon.pack()
         generer_identicon("", self.canvas_identicon)
-        tk.Label(col_d, text="unique par mdp", font=("Segoe UI", 7),
+        tk.Label(col_d, text="unique par mdp",
+                 font=("Segoe UI", 7),
                  fg=c["text_muted"], bg=bg).pack(pady=(4, 0))
 
     def _construire_section_analyse(self, parent):
@@ -564,8 +578,8 @@ class AnchorVaultApp:
 
         row_e = tk.Frame(parent, bg=bg)
         row_e.pack(fill="x", pady=(0, 8))
-        tk.Label(row_e, text="Entropie", font=("Segoe UI", 9),
-                 fg=c["text_muted"], bg=bg).pack(side="left")
+        tk.Label(row_e, text="Entropie",
+                 font=("Segoe UI", 9), fg=c["text_muted"], bg=bg).pack(side="left")
         self.lbl_entropie = tk.Label(row_e, text="— bits",
                                       font=("Consolas", 9, "bold"),
                                       fg=c["primary"], bg=bg)
@@ -575,17 +589,18 @@ class AnchorVaultApp:
 
         row_c = tk.Frame(parent, bg=bg)
         row_c.pack(fill="x", pady=(0, 4))
-        tk.Label(row_c, text="⏱️  Temps de crack", font=("Segoe UI", 9),
-                 fg=c["text_muted"], bg=bg).pack(side="left")
+        tk.Label(row_c, text="⏱️  Temps de crack",
+                 font=("Segoe UI", 9), fg=c["text_muted"], bg=bg).pack(side="left")
         self.lbl_temps = tk.Label(row_c, text="—",
                                    font=("Segoe UI", 9, "bold"),
                                    fg=c["success"], bg=bg)
         self.lbl_temps.pack(side="right")
 
         self.lbl_analogie = tk.Label(
-            parent, text="", font=("Segoe UI", 9, "italic"),
-            fg=c["text_muted"], bg=bg, wraplength=390, justify="center"
-        )
+            parent, text="",
+            font=("Segoe UI", 9, "italic"),
+            fg=c["text_muted"], bg=bg,
+            wraplength=390, justify="center")
         self.lbl_analogie.pack(pady=(4, 0))
 
         tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(10, 6))
@@ -598,29 +613,97 @@ class AnchorVaultApp:
         bg = c["surface2"]
 
         self.lbl_hibp_statut = tk.Label(
-            parent, text="🔒  Génère un mot de passe pour vérifier",
+            parent, text="🔒  Gènère ou saisis un mot de passe pour vérifier",
             font=("Segoe UI", 10), fg=c["text_muted"], bg=bg,
-            wraplength=390, justify="center"
-        )
+            wraplength=390, justify="center")
         self.lbl_hibp_statut.pack(pady=(0, 6))
 
         self.lbl_hibp_detail = tk.Label(
-            parent, text="", font=("Segoe UI", 8, "italic"),
-            fg=c["text_muted"], bg=bg, wraplength=390, justify="center"
-        )
+            parent, text="",
+            font=("Segoe UI", 8, "italic"), fg=c["text_muted"], bg=bg,
+            wraplength=390, justify="center")
         self.lbl_hibp_detail.pack()
 
         tk.Frame(parent, bg=c["border"], height=1).pack(fill="x", pady=(10, 8))
-        tk.Label(
-            parent,
-            text="🛡️ K-anonymity : seuls 5 chars du hash SHA-1 sont envoyés — le vrai mdp ne quitte jamais l'app",
-            font=("Segoe UI", 7), fg=c["text_muted"], bg=bg,
-            wraplength=390, justify="center"
-        ).pack()
+        tk.Label(parent,
+                 text="🛡️ K-anonymity : seuls 5 chars du hash SHA-1 sont envoyés — le vrai mdp ne quitte jamais l'app",
+                 font=("Segoe UI", 7), fg=c["text_muted"], bg=bg,
+                 wraplength=390, justify="center").pack()
 
-    # ── Logique ────────────────────────────────────────────────────────
+    # ── Placeholder ───────────────────────────────────────────────────
+
+    def _afficher_placeholder(self):
+        self.entry_mdp.config(fg="#4a4a6a")
+        self.var_resultat.set(self._placeholder_texte)
+        self._placeholder_actif = True
+
+    def _on_focus_in(self, _=None):
+        if self._placeholder_actif:
+            self.var_resultat.set("")
+            self.entry_mdp.config(fg=self.C["success"])
+            self._placeholder_actif = False
+
+    def _on_focus_out(self, _=None):
+        if not self.var_resultat.get():
+            self._afficher_placeholder()
+
+    def _mdp_reel(self):
+        """Retourne le vrai mdp ou '' si placeholder actif."""
+        if self._placeholder_actif:
+            return ""
+        return self.var_resultat.get()
+
+    # ── Debounce frappe → identicon + HIBP ────────────────────────────
+
+    def _on_mdp_change(self, *_):
+        """Déclenché à chaque frappe. Met à jour force + lance debounce."""
+        if self._placeholder_actif:
+            return
+        mdp = self.var_resultat.get()
+
+        # Force en temps réel (instantané)
+        label, couleur, ratio = evaluer_force_mdp(mdp)
+        self.lbl_force.config(text=label, fg=couleur)
+        self.canvas_barre.update_idletasks()
+        lw = self.canvas_barre.winfo_width()
+        self.canvas_barre.coords(self.rect_barre, 0, 0, int(lw * ratio), 8)
+        self.canvas_barre.itemconfig(self.rect_barre, fill=couleur)
+
+        # Entropie en temps réel
+        entropie = calculer_entropie_mdp(mdp)
+        secondes = calculer_temps_crack(entropie)
+        duree, analogie, coul = formater_temps(secondes)
+        if entropie > 0:
+            self.lbl_entropie.config(text=f"{entropie:.1f} bits")
+            self.lbl_temps.config(text=duree, fg=coul)
+            self.lbl_analogie.config(text=analogie, fg=coul)
+        else:
+            self.lbl_entropie.config(text="— bits")
+            self.lbl_temps.config(text="—", fg=self.C["text_muted"])
+            self.lbl_analogie.config(text="")
+
+        # Identicon immédiat
+        generer_identicon(mdp, self.canvas_identicon)
+
+        # Debounce pour HIBP (attend 600ms de pause avant d'appeler l'API)
+        if self._debounce_id:
+            self.root.after_cancel(self._debounce_id)
+        if mdp:
+            self.lbl_hibp_statut.config(
+                text="⏳  Vérification en cours…",
+                fg=self.C["text_muted"])
+            self.lbl_hibp_detail.config(text="")
+            self._debounce_id = self.root.after(
+                self.DEBOUNCE_MS,
+                lambda m=mdp: self._lancer_hibp(m)
+            )
+        else:
+            self._reset_hibp()
+
+    # ── Logique principale ─────────────────────────────────────────────
 
     def _mettre_a_jour_force(self):
+        """Mise à jour depuis les options (slider / checkboxes)."""
         lon = self.var_longueur.get()
         maj, min_, chf, sym = (
             self.var_maj.get(), self.var_min.get(),
@@ -636,7 +719,6 @@ class AnchorVaultApp:
         entropie = calculer_entropie(lon, maj, min_, chf, sym)
         secondes = calculer_temps_crack(entropie)
         duree, analogie, coul = formater_temps(secondes)
-
         if entropie > 0:
             self.lbl_entropie.config(text=f"{entropie:.1f} bits")
             self.lbl_temps.config(text=duree, fg=coul)
@@ -659,16 +741,18 @@ class AnchorVaultApp:
             generer_identicon("", self.canvas_identicon)
             self._reset_hibp()
             return
+
         self.lbl_erreur.config(text="")
-        self.var_resultat.set(mdp)
+        # Désactiver le placeholder manuellement avant d'injecter
+        self._placeholder_actif = False
+        self.entry_mdp.config(fg=self.C["success"])
+        self.var_resultat.set(mdp)   # déclenche _on_mdp_change automatiquement
         self.btn_copier.config(text="📋  Copier",
                                fg=self.C["text"], bg=self.C["border"])
-        generer_identicon(mdp, self.canvas_identicon)
-        self._lancer_hibp(mdp)
 
     def _reset_hibp(self):
         self.lbl_hibp_statut.config(
-            text="🔒  Génère un mot de passe pour vérifier",
+            text="🔒  Gènère ou saisis un mot de passe pour vérifier",
             fg=self.C["text_muted"]
         )
         self.lbl_hibp_detail.config(text="")
@@ -681,15 +765,13 @@ class AnchorVaultApp:
         if not REQUESTS_AVAILABLE:
             self.lbl_hibp_statut.config(
                 text="📦  Module 'requests' non installé",
-                fg=self.C["warning"]
-            )
+                fg=self.C["warning"])
             self.lbl_hibp_detail.config(
                 text="Lance : pip install requests",
-                fg=self.C["text_muted"]
-            )
+                fg=self.C["text_muted"])
             return
-        self.lbl_hibp_statut.config(text="⏳  Vérification en cours…",
-                                     fg=self.C["text_muted"])
+        self.lbl_hibp_statut.config(
+            text="⏳  Vérification en cours…", fg=self.C["text_muted"])
         self.lbl_hibp_detail.config(text="")
         def _cb(res):
             self.root.after(0, lambda: self._afficher_resultat_hibp(res, mdp))
@@ -706,34 +788,28 @@ class AnchorVaultApp:
         elif resultat == -1:
             self.lbl_hibp_statut.config(
                 text="🔌  Vérification impossible (pas de connexion)",
-                fg=self.C["warning"]
-            )
+                fg=self.C["warning"])
             self.lbl_hibp_detail.config(
                 text="Le mot de passe n'a pas été envoyé sur le réseau.",
-                fg=self.C["text_muted"]
-            )
+                fg=self.C["text_muted"])
         elif resultat == 0:
             self.lbl_hibp_statut.config(
                 text="✅  Propre — non trouvé dans les bases de leaks",
-                fg=self.C["success"]
-            )
+                fg=self.C["success"])
             self.lbl_hibp_detail.config(
                 text="Ce mot de passe n'apparaît dans aucune fuite de données connue.",
-                fg=self.C["text_muted"]
-            )
+                fg=self.C["text_muted"])
         else:
             count_str = f"{resultat:,}".replace(",", " ")
             self.lbl_hibp_statut.config(
                 text=f"⚠️  Trouvé {count_str} fois dans des leaks !",
-                fg=self.C["error"]
-            )
+                fg=self.C["error"])
             self.lbl_hibp_detail.config(
                 text="Ce mot de passe est compromis. Génères-en un nouveau.",
-                fg=self.C["error"]
-            )
+                fg=self.C["error"])
 
     def _on_copier(self):
-        mdp = self.var_resultat.get()
+        mdp = self._mdp_reel()
         if not mdp:
             return
         if CLIPBOARD_AVAILABLE:
